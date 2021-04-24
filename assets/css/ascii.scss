@@ -1,0 +1,22 @@
+@font-face {
+  font-family: ascii;
+  src: url('/fonts/Web437_IBM_VGA_8x14.woff');
+  font-weight: normal;
+  font-style: normal;
+  -webkit-font-smoothing: none;
+}
+
+.vga-grid {
+  font-family: ascii;
+  line-height: 14px;
+  font-size: 14px;
+}
+
+.vga-row {
+  display: flex;
+
+  > span {
+    letter-spacing: 0px;
+    width: 8px;
+  }
+}

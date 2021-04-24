@@ -1,0 +1,9 @@
+<div class="vga-grid">
+  <%= for y <- 0..24 do %>
+    <div class="vga-row">
+      <%= for x <- 0..59 do %>
+        <%= tile(assigns, x, y) %>
+      <% end %>
+    </div>
+  <% end %>
+</div>
