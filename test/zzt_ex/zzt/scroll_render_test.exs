@@ -65,6 +65,23 @@ defmodule ZztEx.Zzt.ScrollRenderTest do
     assert row_text(centered_row) =~ "Centered text"
   end
 
+  test "dotted header and footer rows frame the scroll's line range" do
+    # With 3 lines and line_pos = 2, middle (row 10) shows line 2.
+    # Row 9 = line 1, row 8 = lpos 0 (dotted header).
+    # Row 11 = line 3, row 12 = lpos 4 = count+1 (dotted footer).
+    rows =
+      ScrollRender.render(%{title: "T", lines: ["a", "b", "c"]}, line_pos: 2)
+
+    bullet = Cp437.char(0x07)
+
+    header = row_text(Enum.at(rows, 8))
+    footer = row_text(Enum.at(rows, 12))
+
+    # Bullets appear at every 5th inner column (10 bullets total).
+    assert header |> String.graphemes() |> Enum.count(&(&1 == bullet)) == 9
+    assert footer |> String.graphemes() |> Enum.count(&(&1 == bullet)) == 9
+  end
+
   test "selection arrows always ride the middle row; other lines stack around it" do
     rows =
       ScrollRender.render(%{title: "T", lines: ["one", "two", "three"]}, line_pos: 2)

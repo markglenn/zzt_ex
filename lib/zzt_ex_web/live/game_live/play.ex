@@ -280,7 +280,6 @@ defmodule ZztExWeb.GameLive.Play do
     >
       <div class="zzt-scroll-window" phx-click-away="dismiss-scroll">
         <.grid rows={@rows} />
-        <p class="zzt-scroll-hint">↑/↓ to scroll · ESC/Enter/Space to close</p>
       </div>
     </div>
     """

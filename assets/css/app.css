@@ -270,17 +270,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-}
-
-.zzt-scroll-hint {
-  font-family:
-    "Web437 IBM VGA 8x16", "Menlo", "Consolas", ui-monospace, monospace;
-  color: var(--zzt-c14);
-  background: rgba(0, 0, 0, 0.5);
-  padding: 0.15rem 0.75rem;
-  margin: 0;
-  font-size: 0.9rem;
 }
 
 /* High bit of a ZZT color byte means the foreground blinks. EGA/VGA text

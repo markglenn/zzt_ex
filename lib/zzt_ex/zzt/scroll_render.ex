@@ -154,25 +154,47 @@ defmodule ZztEx.Zzt.ScrollRender do
     end
   end
 
-  # For each content row, figure out which line (if any) lands there,
-  # then draw the line (with selection arrows iff it's the middle row)
-  # or a blank content row when the position is out of range.
+  # For each content row, figure out which line (if any) lands there.
+  # Reference `TextWindowDrawLine` has three cases for the virtual line
+  # position:
   #
-  # `Enum.at/2` accepts negative indices and wraps to the list tail — we
-  # must guard explicitly so rows above the top of the content show as
-  # blank instead of wrapping the end of the scroll back to the top.
+  #   * 1..LineCount  — draw the line (arrows if selected)
+  #   * 0 or LineCount+1 — draw the dotted header/footer (StrInnerSep)
+  #   * otherwise     — leave the row blank
   defp build_content(lines, line_pos) do
     count = length(lines)
 
     for window_row <- @first_content_row..@last_content_row do
       lpos = window_row + line_pos - @middle_row
 
-      if lpos >= 1 and lpos <= count do
-        content_row(Enum.at(lines, lpos - 1), window_row == @middle_row)
-      else
-        blank_content_row()
+      cond do
+        lpos >= 1 and lpos <= count ->
+          content_row(Enum.at(lines, lpos - 1), window_row == @middle_row)
+
+        lpos == 0 or lpos == count + 1 ->
+          dotted_row()
+
+        true ->
+          blank_content_row()
       end
     end
+  end
+
+  # `TextWindowStrInnerSep`: bullet (0x07) every 5 cells across the
+  # inner 45-wide area, with the 2-cell indent preserved.
+  defp dotted_row do
+    dots =
+      for i <- 1..@inner_width do
+        if rem(i, 5) == 0 do
+          cell(0x07, @text_fg, @text_bg)
+        else
+          cell(0x20, @text_fg, @text_bg)
+        end
+      end
+
+    [blank_end(), cell(@vert, @border_fg, @border_bg)] ++
+      dots ++
+      [cell(@vert, @border_fg, @border_bg), blank_end(), blank_end()]
   end
 
   # --- line formatting -----------------------------------------------------
