@@ -1,25 +1,39 @@
 defmodule ZztExWeb.GameLive.Play do
   @moduledoc """
-  Loads a single ZZT world and renders the currently selected board.
-
-  This is the foundation LiveView — it parses the world, shows the grid
-  using the ZZT palette and CP437 font, and lets the player flip through
-  boards. Input handling and game simulation arrive in subsequent changes.
+  Loads a single ZZT world and renders the currently selected board
+  alongside the stock ZZT sidebar. An 80x25 CP437 text-mode display with
+  a speed slider matching ZZT's original 1-9 settings.
   """
   use ZztExWeb, :live_view
 
   alias ZztEx.Games
-  alias ZztEx.Zzt.{Board, Render, World}
+  alias ZztEx.Zzt.{Board, Render, Sidebar, World}
 
-  # ZZT runs at ~9 Hz natively; 125ms (8 fps) is close enough for
-  # star/conveyor/transporter cycling without hammering LiveView diffs.
-  @tick_interval_ms 125
+  # ZZT's GameSpeeds table: the number of 18.2 Hz BIOS ticks waited between
+  # stat passes, per in-game speed setting 1..9. Speed 4 is the default,
+  # matching ZZT's default game speed (~220 ms/stat cycle). At speeds 8-9
+  # the delay is 0 in stock ZZT; we clamp to one BIOS tick so LiveView
+  # isn't re-rendering 1500 spans 60 times a second.
+  @speed_bios_ticks %{
+    1 => 7,
+    2 => 6,
+    3 => 5,
+    4 => 4,
+    5 => 3,
+    6 => 2,
+    7 => 1,
+    8 => 1,
+    9 => 1
+  }
+
+  @default_speed 4
 
   @impl true
   def mount(%{"slug" => slug}, _session, socket) do
     case Games.load(slug) do
       {:ok, world, listing} ->
-        if connected?(socket), do: Process.send_after(self(), :tick, @tick_interval_ms)
+        if connected?(socket),
+          do: Process.send_after(self(), :tick, interval_ms(@default_speed))
 
         {:ok,
          socket
@@ -28,6 +42,8 @@ defmodule ZztExWeb.GameLive.Play do
          |> assign(:world, world)
          |> assign(:page_title, listing.name)
          |> assign(:tick, 0)
+         |> assign(:speed, @default_speed)
+         |> assign(:sidebar_rows, Sidebar.rows(world))
          |> select_board(world.current_board)}
 
       :error ->
@@ -51,9 +67,14 @@ defmodule ZztExWeb.GameLive.Play do
     {:noreply, select_board(socket, socket.assigns.board_index - 1)}
   end
 
+  def handle_event("set-speed", %{"speed" => speed}, socket) do
+    speed = speed |> String.to_integer() |> min(9) |> max(1)
+    {:noreply, assign(socket, :speed, speed)}
+  end
+
   @impl true
   def handle_info(:tick, socket) do
-    Process.send_after(self(), :tick, @tick_interval_ms)
+    Process.send_after(self(), :tick, interval_ms(socket.assigns.speed))
     tick = socket.assigns.tick + 1
 
     rows =
@@ -62,8 +83,10 @@ defmodule ZztExWeb.GameLive.Play do
         title_screen?: socket.assigns.board_index == 0
       )
 
-    {:noreply, assign(socket, tick: tick, rows: rows)}
+    {:noreply, assign(socket, tick: tick, board_rows: rows)}
   end
+
+  defp interval_ms(speed), do: Map.fetch!(@speed_bios_ticks, speed) * 55
 
   defp select_board(%{assigns: %{world: world}} = socket, index) do
     last = length(world.boards) - 1
@@ -74,7 +97,7 @@ defmodule ZztExWeb.GameLive.Play do
     |> assign(:board_index, clamped)
     |> assign(:board, board)
     |> assign(
-      :rows,
+      :board_rows,
       Render.rows(board, tick: socket.assigns.tick, title_screen?: clamped == 0)
     )
   end
@@ -116,46 +139,57 @@ defmodule ZztExWeb.GameLive.Play do
           </div>
         </div>
 
-        <div class="flex flex-col items-center gap-4 lg:flex-row lg:items-start">
-          <.board_view rows={@rows} />
+        <div class="inline-block">
+          <.screen board_rows={@board_rows} sidebar_rows={@sidebar_rows} />
 
-          <aside class="w-full lg:w-64 text-sm">
-            <div class="rounded-box border border-base-300 bg-base-200 p-4">
-              <h2 class="font-semibold mb-2">Player</h2>
-              <dl class="grid grid-cols-2 gap-y-1 font-mono text-xs">
-                <dt class="text-base-content/60">Health</dt>
-                <dd>{@world.health}</dd>
-                <dt class="text-base-content/60">Ammo</dt>
-                <dd>{@world.ammo}</dd>
-                <dt class="text-base-content/60">Gems</dt>
-                <dd>{@world.gems}</dd>
-                <dt class="text-base-content/60">Torches</dt>
-                <dd>{@world.torches}</dd>
-                <dt class="text-base-content/60">Score</dt>
-                <dd>{@world.score}</dd>
-              </dl>
-            </div>
-            <div
-              :if={@board.message != ""}
-              class="mt-3 rounded-box border border-base-300 bg-base-200 p-4"
-            >
-              <h2 class="font-semibold mb-1">Board Message</h2>
-              <p class="font-mono text-xs whitespace-pre-wrap">{@board.message}</p>
-            </div>
-          </aside>
+          <form phx-change="set-speed" class="mt-3 flex items-center gap-3 text-sm">
+            <label for="speed" class="font-mono">Speed</label>
+            <input
+              type="range"
+              name="speed"
+              id="speed"
+              min="1"
+              max="9"
+              step="1"
+              value={@speed}
+              class="w-48 accent-primary"
+            />
+            <span class="font-mono w-16">
+              {@speed} <span class="text-base-content/50">({interval_ms(@speed)}ms)</span>
+            </span>
+          </form>
+        </div>
+
+        <div
+          :if={@board.message != ""}
+          class="mt-4 max-w-xl rounded-box border border-base-300 bg-base-200 p-4"
+        >
+          <h2 class="text-sm font-semibold mb-1">Board Message</h2>
+          <p class="font-mono text-xs whitespace-pre-wrap">{@board.message}</p>
         </div>
       </div>
     </Layouts.app>
     """
   end
 
-  attr :rows, :list, required: true
+  attr :board_rows, :list, required: true
+  attr :sidebar_rows, :list, required: true
 
-  defp board_view(assigns) do
+  defp screen(assigns) do
     ~H"""
-    <div class="zzt-board" aria-label={"ZZT board, #{Board.width()} by #{Board.height()}"}>
-      <pre class="zzt-grid" phx-no-curly-interpolation><%= for row <- @rows do %><div class="zzt-row"><%= for {char, fg, bg, blink} <- row do %><span class={["zzt-c", "fg#{fg}", "bg#{bg}", blink && "blink"]}><%= char %></span><% end %></div><% end %></pre>
+    <div class="zzt-screen" aria-label={"ZZT screen, 80 by #{Board.height()}"}>
+      <.grid rows={@board_rows} class="zzt-board-grid" />
+      <.grid rows={@sidebar_rows} class="zzt-sidebar-grid" />
     </div>
+    """
+  end
+
+  attr :rows, :list, required: true
+  attr :class, :string, default: ""
+
+  defp grid(assigns) do
+    ~H"""
+    <pre class={["zzt-grid", @class]} phx-no-curly-interpolation><%= for row <- @rows do %><div class="zzt-row"><%= for {char, fg, bg, blink} <- row do %><span class={["zzt-c", "fg#{fg}", "bg#{bg}", blink && "blink"]}><%= char %></span><% end %></div><% end %></pre>
     """
   end
 end

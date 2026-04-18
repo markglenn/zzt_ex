@@ -142,8 +142,10 @@
   --zzt-c15: #ffffff;
 }
 
-.zzt-board {
-  display: inline-block;
+/* The full 80x25 display = board (60 cols) + sidebar (20 cols), flush. */
+.zzt-screen {
+  display: inline-flex;
+  align-items: flex-start;
   padding: 0.5rem;
   background: var(--zzt-c0);
   border: 1px solid var(--zzt-c8);
