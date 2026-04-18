@@ -30,11 +30,15 @@ defmodule ZztEx.Zzt.Scroll do
     %{title: title, lines: Enum.reject(body, &control_line?/1)}
   end
 
-  # Lines on disk are CR-separated. Also strip a trailing NUL so the last
-  # entry doesn't end with a stray glyph.
+  # Lines on disk are CR-separated; the last line usually ends with its
+  # own CR as a terminator (POSIX-style), which would otherwise leave a
+  # phantom empty line at the end of the split. Trim a single trailing
+  # CR along with any NUL padding so intentional mid-body blank lines
+  # stay intact.
   defp split_lines(code) do
     code
     |> String.trim_trailing(<<0>>)
+    |> String.replace_suffix("\r", "")
     |> String.split("\r")
     |> Enum.map(&cp437_decode/1)
   end

@@ -47,9 +47,22 @@ defmodule ZztEx.Zzt.ScrollTest do
            ]
   end
 
-  test "trailing NUL from the OOP code body is trimmed (but empty lines stay)" do
-    # ZZT scrolls are CR-terminated, so a trailing empty line is normal.
+  test "trailing CR and NUL are stripped as terminators, not separators" do
+    # A single trailing \r (with optional NUL padding) is the line's own
+    # terminator — dropping it prevents a phantom empty line at the end.
     code = "@Title\rHello\r" <> <<0>>
-    assert Scroll.parse(code).lines == ["Hello", ""]
+    assert Scroll.parse(code).lines == ["Hello"]
+  end
+
+  test "preserves intentional blank lines inside the body" do
+    code = "@Title\rLine one\r\rLine three\r"
+    assert Scroll.parse(code).lines == ["Line one", "", "Line three"]
+  end
+
+  test "trailing control line doesn't leave a phantom blank" do
+    # @Title\rTop\r#end\r is a common ZZT scroll shape; #end is stripped
+    # as a control line, but there should be no trailing empty row.
+    code = "@Sign\rHello\r#end\r"
+    assert Scroll.parse(code).lines == ["Hello"]
   end
 end
