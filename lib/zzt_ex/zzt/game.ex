@@ -222,6 +222,8 @@ defmodule ZztEx.Zzt.Game do
     * If the destination is walkable afterward, the pushed tile slides in.
   """
   @spec push_tile(t(), integer(), integer(), integer(), integer()) :: t()
+  def push_tile(%__MODULE__{} = game, _x, _y, 0, 0), do: game
+
   def push_tile(%__MODULE__{} = game, x, y, dx, dy) do
     case Map.get(game.tiles, {x, y}) do
       nil ->
@@ -375,36 +377,79 @@ defmodule ZztEx.Zzt.Game do
     cond do
       exit_board == 0 -> game
       exit_board >= length(world.boards) -> game
-      true -> change_board(game, exit_board, entry_x, entry_y)
+      true -> change_board(game, exit_board, entry_x, entry_y, dx, dy)
     end
   end
 
   @doc """
   Transition to another board, preserving the player's inventory and
-  placing them at `{entry_x, entry_y}` on the new board. If the entry
-  tile isn't walkable the move is aborted and the current board state
-  is kept (matches ZZT's "revert" path in `ElementBoardEdgeTouch`).
+  placing them at `{entry_x, entry_y}` on the new board. The entry
+  tile's TouchProc fires (so pickups / monster fights / doors at the
+  seam behave as expected). If the tile still isn't walkable after
+  that, the transition reverts and the previous board state stays.
   """
-  @spec change_board(t(), non_neg_integer(), 1..60, 1..25) :: t()
-  def change_board(%__MODULE__{world: world, player: player} = game, new_idx, entry_x, entry_y) do
+  @spec change_board(t(), non_neg_integer(), 1..60, 1..25, integer(), integer()) :: t()
+  def change_board(
+        %__MODULE__{world: world, player: player} = game,
+        new_idx,
+        entry_x,
+        entry_y,
+        dx \\ 0,
+        dy \\ 0
+      ) do
     fresh = new(world, new_idx)
     fresh = %{fresh | player: player}
 
     {entry_elem, _color} = Map.fetch!(fresh.tiles, {entry_x, entry_y})
 
-    cond do
-      entry_elem == 4 ->
-        # Player already sits on the entry tile; nothing to do.
+    fresh =
+      if entry_elem == 4 do
         fresh
+      else
+        {fresh, _dx, _dy} = ZztEx.Zzt.Touch.touch(fresh, entry_x, entry_y, 0, dx, dy)
+        fresh
+      end
 
-      Element.walkable?(entry_elem) ->
-        # Move the player stat onto the entry tile.
-        move_stat(fresh, 0, entry_x, entry_y)
+    {entry_elem, _color} = Map.fetch!(fresh.tiles, {entry_x, entry_y})
 
-      true ->
-        # Entry blocked — stay on the current board.
-        game
+    cond do
+      entry_elem == 4 -> fresh
+      Element.walkable?(entry_elem) -> move_stat(fresh, 0, entry_x, entry_y)
+      true -> game
     end
+  end
+
+  @doc """
+  Teleport through a passage at `{x, y}`. Ports `BoardPassageTeleport`:
+  take the passage's color and its stat's `p3` (target board), switch
+  to that board, scan for a passage of the matching color, and move
+  the player there.
+  """
+  @spec passage_teleport(t(), 1..60, 1..25) :: t()
+  def passage_teleport(%__MODULE__{world: world, player: player} = game, x, y) do
+    {_, color} = Map.fetch!(game.tiles, {x, y})
+
+    with idx when is_integer(idx) <- find_stat_at(game.stats, x, y),
+         stat <- Enum.at(game.stats, idx),
+         target_idx when target_idx > 0 and target_idx < length(world.boards) <- stat.p3 do
+      fresh = new(world, target_idx)
+      fresh = %{fresh | player: player}
+
+      case find_colored_passage(fresh, color) do
+        {nx, ny} -> move_stat(fresh, 0, nx, ny)
+        nil -> fresh
+      end
+    else
+      _ -> game
+    end
+  end
+
+  defp find_colored_passage(%__MODULE__{tiles: tiles}, color) do
+    tiles
+    |> Enum.find_value(fn
+      {{x, y}, {11, ^color}} -> {x, y}
+      _ -> nil
+    end)
   end
 
   defp finalize_move(game, 0, 0), do: game

@@ -374,5 +374,103 @@ defmodule ZztEx.Zzt.GameTest do
       assert final.player.gems == 3
       assert final.player.score == 99
     end
+
+    test "entry tile touch proc fires — walking east into a gem picks it up" do
+      tiles0 = List.duplicate({0, 0x0F}, 1500)
+      board0 = %Board{title: "T", tiles: tiles0, stats: [%Stat{x: 1, y: 1}]}
+
+      b1_tiles = List.replace_at(tiles0, row_major(60, 13), {4, 0x1F})
+
+      board1 =
+        %Board{
+          title: "A",
+          tiles: b1_tiles,
+          stats: [%Stat{x: 60, y: 13, cycle: 1}],
+          exit_east: 2
+        }
+
+      b2_tiles =
+        tiles0
+        |> List.replace_at(row_major(10, 10), {4, 0x1F})
+        |> List.replace_at(row_major(1, 13), {7, 0x0B})
+
+      board2 = %Board{title: "B", tiles: b2_tiles, stats: [%Stat{x: 10, y: 10, cycle: 1}]}
+
+      world = %World{name: "T", health: 100, current_board: 1, boards: [board0, board1, board2]}
+
+      game = Game.new(world, 1) |> Map.update!(:player, &%{&1 | gems: 0})
+
+      final = Game.move_player(game, 1, 0)
+
+      # Gem picked up on the seam; player stands on the vacated tile.
+      assert final.board_index == 2
+      assert final.player.gems == 1
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {1, 13}
+    end
+  end
+
+  describe "passage_teleport/3" do
+    # Two-board world with a blue passage (color 0x01) on each board.
+    # Walking into the one on board 1 should teleport to the one on
+    # board 2 and vice versa, preserving inventory.
+    defp passage_world do
+      tiles0 = List.duplicate({0, 0x0F}, 1500)
+      board0 = %Board{title: "T", tiles: tiles0, stats: [%Stat{x: 1, y: 1}]}
+
+      b1_tiles =
+        tiles0
+        |> List.replace_at(row_major(10, 10), {4, 0x1F})
+        |> List.replace_at(row_major(11, 10), {11, 0x01})
+
+      # p3 on the passage stat = destination board index (2).
+      passage1_stat = %Stat{x: 11, y: 10, cycle: 0, p3: 2}
+
+      board1 = %Board{
+        title: "One",
+        tiles: b1_tiles,
+        stats: [%Stat{x: 10, y: 10, cycle: 1}, passage1_stat]
+      }
+
+      b2_tiles =
+        tiles0
+        |> List.replace_at(row_major(20, 20), {4, 0x1F})
+        |> List.replace_at(row_major(5, 5), {11, 0x01})
+
+      passage2_stat = %Stat{x: 5, y: 5, cycle: 0, p3: 1}
+
+      board2 = %Board{
+        title: "Two",
+        tiles: b2_tiles,
+        stats: [%Stat{x: 20, y: 20, cycle: 1}, passage2_stat]
+      }
+
+      %World{name: "T", health: 100, current_board: 1, boards: [board0, board1, board2]}
+    end
+
+    test "walking into a passage teleports to the matching-color passage" do
+      world = passage_world()
+      game = Game.new(world, 1)
+
+      final = Game.move_player(game, 1, 0)
+
+      assert final.board_index == 2
+      player = Enum.at(final.stats, 0)
+      # Landed on board 2's matching passage at (5, 5).
+      assert {player.x, player.y} == {5, 5}
+    end
+
+    test "teleport preserves player inventory" do
+      world = passage_world()
+
+      game =
+        Game.new(world, 1)
+        |> Map.update!(:player, &%{&1 | score: 77, torches: 3})
+
+      final = Game.move_player(game, 1, 0)
+
+      assert final.player.score == 77
+      assert final.player.torches == 3
+    end
   end
 end

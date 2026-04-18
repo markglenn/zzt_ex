@@ -30,6 +30,7 @@ defmodule ZztEx.Zzt.Touch do
   @invisible 28
   @slime 37
 
+  @passage 11
   @boulder 24
   @slider_ns 25
   @slider_ew 26
@@ -143,6 +144,13 @@ defmodule ZztEx.Zzt.Touch do
   defp dispatch(element, _color, game, x, y, _src, dx, dy)
        when element in [@boulder, @slider_ns, @slider_ew] do
     {Game.push_tile(game, x, y, dx, dy), dx, dy}
+  end
+
+  # Passage: teleport to the matching-color passage on the board stored
+  # in the passage stat's p3. Delta is cleared so the outer move loop
+  # doesn't also try to slide the player onto the old passage tile.
+  defp dispatch(@passage, _color, game, x, y, _src, _dx, _dy) do
+    {Game.passage_teleport(game, x, y), 0, 0}
   end
 
   # Slime: slime dies and the tile becomes a breakable wall in its color.
