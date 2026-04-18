@@ -549,6 +549,10 @@ defmodule ZztEx.Zzt.Game do
 
     case Element.name(element) do
       :lion -> AI.Lion.tick(game, cur_idx)
+      # Tigers shoot bullets (not yet implemented) then fall back on
+      # Lion's movement — route the movement for now so they actually
+      # hunt instead of standing around.
+      :tiger -> AI.Lion.tick(game, cur_idx)
       :bear -> AI.Bear.tick(game, cur_idx)
       :ruffian -> AI.Ruffian.tick(game, cur_idx)
       :slime -> AI.Slime.tick(game, cur_idx)
