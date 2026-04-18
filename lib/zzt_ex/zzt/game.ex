@@ -152,6 +152,22 @@ defmodule ZztEx.Zzt.Game do
   @spec energized?(t()) :: boolean()
   def energized?(%__MODULE__{player: %{energizer_ticks: n}}), do: n > 0
 
+  @doc """
+  A monster steps onto the player. Default behavior for contact monsters:
+  deal 10 damage and die on contact; when the player is energized the
+  monster dies without damaging.
+  """
+  @spec collide_with_player(t(), non_neg_integer(), non_neg_integer()) :: t()
+  def collide_with_player(%__MODULE__{} = game, attacker_idx, damage \\ 10) do
+    if energized?(game) do
+      remove_stat(game, attacker_idx)
+    else
+      game
+      |> damage_player(damage)
+      |> remove_stat(attacker_idx)
+    end
+  end
+
   # ---- internals --------------------------------------------------------
 
   defp decrement_energizer(%{player: %{energizer_ticks: n} = p} = game) when n > 0 do
@@ -205,6 +221,11 @@ defmodule ZztEx.Zzt.Game do
 
     case Element.name(element) do
       :lion -> AI.Lion.tick(game, cur_idx)
+      :bear -> AI.Bear.tick(game, cur_idx)
+      :ruffian -> AI.Ruffian.tick(game, cur_idx)
+      :slime -> AI.Slime.tick(game, cur_idx)
+      :shark -> AI.Shark.tick(game, cur_idx)
+      :pusher -> AI.Pusher.tick(game, cur_idx)
       _ -> game
     end
   end
