@@ -130,17 +130,35 @@ defmodule ZztEx.Zzt.Game do
   end
 
   @doc """
-  Remove the stat at `stat_idx` and restore whatever was beneath it. Note
-  that this shifts all higher stat indices down by one — callers mid-tick
-  must re-acquire their iteration index afterward.
+  Remove the stat at `stat_idx` and restore whatever was beneath it. All
+  remaining stats have their `follower`/`leader` references rewritten so
+  pointers to the removed stat become `-1` and pointers to higher indices
+  shift down by one. Callers mid-tick still need to re-acquire their own
+  iteration index.
   """
   @spec remove_stat(t(), non_neg_integer()) :: t()
   def remove_stat(%__MODULE__{} = game, stat_idx) do
     stat = Enum.at(game.stats, stat_idx)
     new_tiles = Map.put(game.tiles, {stat.x, stat.y}, {stat.under_element, stat.under_color})
 
-    %{game | tiles: new_tiles, stats: List.delete_at(game.stats, stat_idx)}
+    new_stats =
+      game.stats
+      |> List.delete_at(stat_idx)
+      |> Enum.map(fn s ->
+        %Stat{
+          s
+          | leader: shift_ref(s.leader, stat_idx),
+            follower: shift_ref(s.follower, stat_idx)
+        }
+      end)
+
+    %{game | tiles: new_tiles, stats: new_stats}
   end
+
+  defp shift_ref(-1, _removed), do: -1
+  defp shift_ref(ref, removed) when ref < removed, do: ref
+  defp shift_ref(ref, removed) when ref == removed, do: -1
+  defp shift_ref(ref, _removed), do: ref - 1
 
   @doc "Apply `amount` damage to the player (clamped to zero)."
   @spec damage_player(t(), non_neg_integer()) :: t()
@@ -226,6 +244,9 @@ defmodule ZztEx.Zzt.Game do
       :slime -> AI.Slime.tick(game, cur_idx)
       :shark -> AI.Shark.tick(game, cur_idx)
       :pusher -> AI.Pusher.tick(game, cur_idx)
+      :head -> AI.Centipede.tick(game, cur_idx)
+      # Segments are carried along by their head — no self-tick.
+      :segment -> game
       _ -> game
     end
   end
