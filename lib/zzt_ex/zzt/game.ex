@@ -556,6 +556,8 @@ defmodule ZztEx.Zzt.Game do
       :pusher -> AI.Pusher.tick(game, cur_idx)
       :head -> AI.Centipede.tick(game, cur_idx)
       :segment -> AI.Centipede.segment_tick(game, cur_idx)
+      :conveyor_cw -> AI.Conveyor.cw_tick(game, cur_idx)
+      :conveyor_ccw -> AI.Conveyor.ccw_tick(game, cur_idx)
       _ -> game
     end
   end

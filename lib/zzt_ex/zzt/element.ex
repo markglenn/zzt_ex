@@ -136,6 +136,13 @@ defmodule ZztEx.Zzt.Element do
   def pushable?(26, dx, _dy) when dx != 0, do: true
   def pushable?(elem, _dx, _dy), do: elem in @pushable
 
+  @doc """
+  Static Pushable flag — used by conveyors, which shove in any of eight
+  directions and therefore don't honor the slider axis lock.
+  """
+  @spec pushable?(0..255) :: boolean()
+  def pushable?(elem), do: elem in @pushable
+
   # Destructible tiles get crushed when something pushes them into a
   # wall. Matches ElementDefs[X].Destructible.
   @destructible [4, 7, 18, 34, 35, 41, 42, 44, 45]
