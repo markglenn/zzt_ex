@@ -17,10 +17,16 @@ defmodule ZztEx.Zzt.Render do
 
   @doc """
   Render `board` as a list of 25 rows, each a list of 60 `cell` tuples.
+
+  Pass `title_screen?: true` when rendering board 0 of a world — ZZT hides
+  the player avatar on the title screen (the runtime swaps the Player tile
+  for a Monitor), so the smiley face shouldn't appear there.
   """
-  @spec rows(Board.t()) :: [[cell()]]
-  def rows(%Board{} = board) do
+  @spec rows(Board.t(), keyword()) :: [[cell()]]
+  def rows(%Board{} = board, opts \\ []) do
+    title_screen? = Keyword.get(opts, :title_screen?, false)
     stat_chars = stat_char_overrides(board.stats)
+    player_pos = title_screen? && player_position(board.stats)
 
     board.tiles
     |> Enum.chunk_every(Board.width())
@@ -29,15 +35,36 @@ defmodule ZztEx.Zzt.Render do
       row_tiles
       |> Enum.with_index(1)
       |> Enum.map(fn {{element, color}, x} ->
-        cell(element, color, Map.get(stat_chars, {x, y}))
+        if player_pos == {x, y} do
+          {" ", 7, 0}
+        else
+          cell(element, color, Map.get(stat_chars, {x, y}))
+        end
       end)
     end)
   end
 
+  defp player_position([%Stat{x: x, y: y} | _]), do: {x, y}
+  defp player_position(_), do: nil
+
   @object 36
+  @invisible 28
+  @empty 0
 
   defp cell(element, color, stat_char) do
     cond do
+      # Empty tiles carry residual color bytes left over from whatever
+      # element the editor previously placed there. ZZT always draws them
+      # as pure black; mirroring the stored bg surfaces editor ghosts as
+      # visible grey/green/cyan blocks (e.g. town.zzt's Tigers building).
+      element == @empty ->
+        {" ", 7, 0}
+
+      # Invisible walls are stored with the color they'll reveal as, but
+      # ZZT draws them as fully blank until the player bumps one.
+      element == @invisible ->
+        {" ", 7, 0}
+
       Element.text?(element) ->
         bg = Element.text_background(element) || 0
         {Cp437.char(color), 15, bg}

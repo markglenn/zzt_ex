@@ -44,7 +44,10 @@ defmodule ZztEx.Zzt.Element do
     {25, :slider_ns, 0x12, false},
     {26, :slider_ew, 0x1D, false},
     {27, :fake, 0xB2, false},
-    {28, :invisible, 0xB0, false},
+    # Invisible walls draw as blank until bumped; ZZT reveals them as
+    # Normal walls only after the player touches one, so a static renderer
+    # must emit an empty cell.
+    {28, :invisible, 0x20, false},
     {29, :blink_wall, 0xCE, false},
     {30, :transporter, 0x3C, false},
     {31, :line, 0xCE, false},

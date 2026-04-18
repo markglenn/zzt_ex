@@ -52,7 +52,7 @@ defmodule ZztExWeb.GameLive.Play do
     socket
     |> assign(:board_index, clamped)
     |> assign(:board, board)
-    |> assign(:rows, Render.rows(board))
+    |> assign(:rows, Render.rows(board, title_screen?: clamped == 0))
   end
 
   @impl true
