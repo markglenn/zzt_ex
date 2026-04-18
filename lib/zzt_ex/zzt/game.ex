@@ -213,21 +213,44 @@ defmodule ZztEx.Zzt.Game do
 
   @doc """
   Move the player in response to input. `{dx, dy}` is one cardinal step.
-  Dead players don't move; off-board moves are clamped away. If the
-  target tile is walkable the player slides in; anything else (walls,
-  monsters, pickups, doors) blocks for now — touch procs arrive next.
+
+  Flow matches `ElementPlayerTick`: fire the target tile's `TouchProc`
+  first (which may pick things up, chop forests, damage monsters,
+  consume a key, reveal invisible walls, or block the mover by zeroing
+  the delta), then — if the delta is still non-zero and the target is
+  walkable afterwards — slide the player onto it.
   """
   @spec move_player(t(), integer(), integer()) :: t()
   def move_player(%__MODULE__{} = game, dx, dy) do
+    cond do
+      game.player.health <= 0 ->
+        game
+
+      true ->
+        player = Enum.at(game.stats, 0)
+        tx = player.x + dx
+        ty = player.y + dy
+
+        if in_bounds?(tx, ty) do
+          {game, dx, dy} = ZztEx.Zzt.Touch.touch(game, tx, ty, 0, dx, dy)
+          finalize_move(game, dx, dy)
+        else
+          game
+        end
+    end
+  end
+
+  defp finalize_move(game, 0, 0), do: game
+
+  defp finalize_move(game, dx, dy) do
     player = Enum.at(game.stats, 0)
     tx = player.x + dx
     ty = player.y + dy
 
-    cond do
-      game.player.health <= 0 -> game
-      not in_bounds?(tx, ty) -> game
-      walkable?(game, tx, ty) -> move_stat(game, 0, tx, ty)
-      true -> game
+    if in_bounds?(tx, ty) and walkable?(game, tx, ty) do
+      move_stat(game, 0, tx, ty)
+    else
+      game
     end
   end
 

@@ -106,6 +106,21 @@ defmodule ZztEx.Zzt.Element do
   @spec walkable?(0..255) :: boolean()
   def walkable?(id), do: id in @walkable
 
+  # ScoreValue in the reference defaults to 0; only monsters pay bounty
+  # when the player destroys them (while energized) or a bullet kills them.
+  @score_values %{
+    34 => 1,
+    35 => 2,
+    41 => 1,
+    42 => 2,
+    44 => 1,
+    45 => 3
+  }
+
+  @doc "Points awarded when `element` is destroyed."
+  @spec score_value(0..255) :: non_neg_integer()
+  def score_value(id), do: Map.get(@score_values, id, 0)
+
   @doc """
   Background palette index for a text element (47..53), or `nil` otherwise.
 
