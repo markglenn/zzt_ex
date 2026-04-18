@@ -118,8 +118,8 @@ defmodule ZztExWeb.GameLive.Play do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash}>
-      <div class="mx-auto max-w-6xl px-4 py-6">
-        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="px-4 py-6 flex flex-col items-center gap-4">
+        <div class="w-full max-w-6xl flex flex-wrap items-center justify-between gap-3">
           <div>
             <.link navigate={~p"/"} class="text-xs text-base-content/60 hover:text-base-content">
               ← Library
@@ -151,7 +151,7 @@ defmodule ZztExWeb.GameLive.Play do
           </div>
         </div>
 
-        <div class="inline-block">
+        <div class="w-fit">
           <.screen board_rows={@board_rows} sidebar_rows={@sidebar_rows} />
 
           <form phx-change="set-speed" class="mt-3 flex items-center gap-3 text-sm">
@@ -174,7 +174,7 @@ defmodule ZztExWeb.GameLive.Play do
 
         <div
           :if={@board.message != ""}
-          class="mt-4 max-w-xl rounded-box border border-base-300 bg-base-200 p-4"
+          class="w-full max-w-xl rounded-box border border-base-300 bg-base-200 p-4"
         >
           <h2 class="text-sm font-semibold mb-1">Board Message</h2>
           <p class="font-mono text-xs whitespace-pre-wrap">{@board.message}</p>
