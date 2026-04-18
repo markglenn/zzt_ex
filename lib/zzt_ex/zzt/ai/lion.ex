@@ -1,60 +1,57 @@
 defmodule ZztEx.Zzt.AI.Lion do
   @moduledoc """
-  Lion tick behavior, ported from ZZT's `ElementLionTick`.
+  One-to-one port of `ElementLionTick` from reconstruction-of-zzt.
 
-  Each lion picks a direction then either moves into that tile, attacks
-  the player if it's there, or does nothing if blocked:
+      if P1 < Random(10) then
+        CalcDirectionRnd(deltaX, deltaY)
+      else
+        CalcDirectionSeek(X, Y, deltaX, deltaY);
 
-    1. With probability `p1 / 10`, seek the player; otherwise pick a
-       random cardinal direction.
-    2. If the player is energized, invert the chosen direction — lions
-       run away from an energized player.
-    3. Walk into the tile if it's `Element.walkable?/1`; attack if it's
-       the player; otherwise stay put.
+      if Walkable(X+dx, Y+dy) then MoveStat
+      else if Player(X+dx, Y+dy) then BoardAttack
+
+  `p1` is intelligence: higher means more likely to chase. The direction
+  chosen by `CalcDirectionSeek` already accounts for the energizer (flees
+  instead of chasing when active), so there's no extra inversion here.
   """
 
   alias ZztEx.Zzt.{Element, Game}
   alias ZztEx.Zzt.AI.Directions
 
-  @doc """
-  Run one tick for the lion at `stat_idx`. Returns the updated game.
-  """
+  @player 4
+
   @spec tick(Game.t(), non_neg_integer()) :: Game.t()
   def tick(%Game{} = game, stat_idx) do
     stat = Enum.at(game.stats, stat_idx)
-    player = Enum.at(game.stats, 0)
 
-    {dx, dy} = direction(stat, player, Game.energized?(game))
+    {dx, dy} =
+      if stat.p1 < :rand.uniform(10) - 1 do
+        Directions.random_step()
+      else
+        Directions.seek(game, stat)
+      end
+
     tx = stat.x + dx
     ty = stat.y + dy
 
     cond do
-      not in_bounds?(tx, ty) -> game
-      tx == player.x and ty == player.y -> Game.collide_with_player(game, stat_idx)
       walkable?(game, tx, ty) -> Game.move_stat(game, stat_idx, tx, ty)
+      player_at?(game, tx, ty) -> Game.collide_with_player(game, stat_idx)
       true -> game
     end
   end
-
-  # `Random(0, 9) < p1` selects seek; p1 is the "intelligence" stored on
-  # the stat (0 = always random, 8-9 = nearly always chases).
-  defp direction(stat, player, energized?) do
-    {dx, dy} =
-      if :rand.uniform(10) - 1 < stat.p1 do
-        Directions.seek(stat, player)
-      else
-        Directions.random_step()
-      end
-
-    if energized?, do: {-dx, -dy}, else: {dx, dy}
-  end
-
-  defp in_bounds?(x, y), do: x in 1..60 and y in 1..25
 
   defp walkable?(game, x, y) do
     case Game.tile_at(game, x, y) do
       nil -> false
       {element, _color} -> Element.walkable?(element)
+    end
+  end
+
+  defp player_at?(game, x, y) do
+    case Game.tile_at(game, x, y) do
+      {@player, _} -> true
+      _ -> false
     end
   end
 end

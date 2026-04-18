@@ -130,6 +130,31 @@ defmodule ZztEx.Zzt.Game do
   end
 
   @doc """
+  Add a new stat to the board, placing its element at `{x, y}` and
+  saving whatever was there as the new stat's under-tile. Mirrors
+  ZZT's `AddStat` — used by Slime to spawn copies and (eventually) by
+  `BoardShoot` to spawn bullets.
+  """
+  @spec add_stat(t(), 1..60, 1..25, 0..255, 0..255, Stat.t()) :: t()
+  def add_stat(%__MODULE__{} = game, x, y, element, color, template \\ %Stat{x: 0, y: 0}) do
+    under = Map.get(game.tiles, {x, y}, {0, 0})
+
+    new_stat = %Stat{
+      template
+      | x: x,
+        y: y,
+        under_element: elem(under, 0),
+        under_color: elem(under, 1)
+    }
+
+    %{
+      game
+      | tiles: Map.put(game.tiles, {x, y}, {element, color}),
+        stats: game.stats ++ [new_stat]
+    }
+  end
+
+  @doc """
   Remove the stat at `stat_idx` and restore whatever was beneath it. All
   remaining stats have their `follower`/`leader` references rewritten so
   pointers to the removed stat become `-1` and pointers to higher indices

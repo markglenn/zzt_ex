@@ -54,7 +54,7 @@ defmodule ZztEx.Zzt.AI.SlimeTest do
     assert element == @breakable
   end
 
-  test "slime boxed in by walls on all sides doesn't move" do
+  test "slime boxed in on all sides dies and leaves a breakable tile" do
     game =
       AIFixture.game_with(
         player_xy: {30, 30},
@@ -63,9 +63,41 @@ defmodule ZztEx.Zzt.AI.SlimeTest do
         walls: [{9, 10}, {11, 10}, {10, 9}, {10, 11}]
       )
 
-    final = Enum.reduce(1..10, game, fn _, acc -> Slime.tick(acc, 1) end)
-    slime = Enum.at(final.stats, 1)
+    final = Slime.tick(game, 1)
 
-    assert {slime.x, slime.y} == {10, 10}
+    # Slime stat is gone; tile where it was is now a breakable wall.
+    assert length(final.stats) == 1
+    assert Map.fetch!(final.tiles, {10, 10}) |> elem(0) == @breakable
+  end
+
+  test "slime fills every walkable neighbor, splitting into new slimes" do
+    # Open floor on all four sides — one direction becomes the move
+    # target, the other three spawn replicated slime stats.
+    game =
+      AIFixture.game_with(
+        player_xy: {30, 30},
+        monster: slime_stat(10, 10, 0),
+        element: @slime
+      )
+
+    final = Slime.tick(game, 1)
+
+    # Starting: player + 1 slime = 2 stats. After: one moved, three spawned = 4 slimes.
+    assert length(final.stats) == 5
+
+    # All four neighbors now hold slime: the first walkable in N/S/W/E
+    # order (north) is the moved slime, the other three are replicas.
+    slime_positions =
+      [{9, 10}, {11, 10}, {10, 9}, {10, 11}]
+      |> Enum.count(fn {x, y} ->
+        case Map.fetch!(final.tiles, {x, y}) do
+          {37, _} -> true
+          _ -> false
+        end
+      end)
+
+    assert slime_positions == 4
+    # The original tile was vacated (turned into breakable trail).
+    assert Map.fetch!(final.tiles, {10, 10}) |> elem(0) == @breakable
   end
 end

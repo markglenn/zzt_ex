@@ -49,10 +49,10 @@ defmodule ZztEx.Zzt.AI.BearTest do
     assert {bear.x, bear.y} == {20, 20}
   end
 
-  test "bear attacks breakable walls on contact" do
-    # Bear east-adjacent to a breakable wall that sits east-adjacent to
-    # the player. One tick pointing west smashes the wall without the
-    # bear occupying its tile.
+  test "bear attacking a breakable wall dies with the wall" do
+    # Bears are kamikaze in stock ZZT — attacking anything (player or
+    # breakable) kills them. Bear east of a breakable, which is east of
+    # the player; one tick points west and both tile and bear are gone.
     game =
       AIFixture.game_with(
         player_xy: {5, 10},
@@ -62,11 +62,11 @@ defmodule ZztEx.Zzt.AI.BearTest do
       )
 
     final = Bear.tick(game, 1)
-    {element, _color} = Map.fetch!(final.tiles, {6, 10})
 
-    assert element == 0
-    bear = Enum.at(final.stats, 1)
-    assert {bear.x, bear.y} == {7, 10}
+    # Breakable destroyed.
+    assert Map.fetch!(final.tiles, {6, 10}) |> elem(0) == 0
+    # Bear stat removed.
+    assert length(final.stats) == 1
   end
 
   test "bear dies on contact with an energized player" do

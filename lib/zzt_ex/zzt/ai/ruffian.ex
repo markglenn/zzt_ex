@@ -1,19 +1,21 @@
 defmodule ZztEx.Zzt.AI.Ruffian do
   @moduledoc """
-  Ruffian tick behavior, ported from ZZT's `ElementRuffianTick`.
+  One-to-one port of `ElementRuffianTick`.
 
-  Ruffians alternate between resting and walking. `p1` is chase intensity
-  (0-8) and `p2` is resting tendency (0-8):
+  Resting (`step = {0, 0}`): every tick there's a `(17 - (P2 + 8))/17`
+  chance to stand up and start walking. When starting, `P1 >= Random(9)`
+  picks a player-seeking direction, otherwise a random one.
 
-    * When stationary (`step == {0, 0}`), roll a d18 — if it clears
-      `p2 + 8`, pick a random direction and start walking.
-    * When walking, if the ruffian is aligned with the player on a row
-      or column, roll `p1 / 10` to redirect the step toward the player.
-    * Try to move one step; attack the player on contact, stop on blocked.
+  Walking: if aligned with the player on X or Y, re-roll direction with
+  `Random(9) <= P1`; then try to step. On a walkable tile, move and roll
+  the rest die again — `(P2 + 8) <= Random(17)` — to decide whether to
+  pause for the next tick. On the player, attack. Otherwise stop.
   """
 
   alias ZztEx.Zzt.{Element, Game, Stat}
   alias ZztEx.Zzt.AI.Directions
+
+  @player 4
 
   @spec tick(Game.t(), non_neg_integer()) :: Game.t()
   def tick(%Game{} = game, stat_idx) do
@@ -22,48 +24,68 @@ defmodule ZztEx.Zzt.AI.Ruffian do
     if ruffian.step_x == 0 and ruffian.step_y == 0 do
       maybe_start_walking(game, stat_idx, ruffian)
     else
-      redirect_and_move(game, stat_idx, ruffian)
+      walk(game, stat_idx, ruffian)
     end
   end
 
   defp maybe_start_walking(game, stat_idx, ruffian) do
-    if :rand.uniform(18) - 1 >= ruffian.p2 + 8 do
-      {sx, sy} = Directions.random_step()
-      game |> set_step(stat_idx, sx, sy) |> attempt_move(stat_idx)
+    # `(P2 + 8) <= Random(17)` — high p2 makes the ruffian stay put longer.
+    if ruffian.p2 + 8 <= :rand.uniform(17) - 1 do
+      {sx, sy} =
+        if ruffian.p1 >= :rand.uniform(9) - 1 do
+          Directions.seek(game, ruffian)
+        else
+          Directions.random_step()
+        end
+
+      game
+      |> set_step(stat_idx, sx, sy)
+      |> attempt_move(stat_idx)
     else
       game
     end
   end
 
-  defp redirect_and_move(game, stat_idx, ruffian) do
+  defp walk(game, stat_idx, ruffian) do
     player = Enum.at(game.stats, 0)
 
     {sx, sy} =
-      cond do
-        ruffian.y == player.y and :rand.uniform(10) - 1 < ruffian.p1 ->
-          {Directions.signum(player.x - ruffian.x), 0}
-
-        ruffian.x == player.x and :rand.uniform(10) - 1 < ruffian.p1 ->
-          {0, Directions.signum(player.y - ruffian.y)}
-
-        true ->
-          {ruffian.step_x, ruffian.step_y}
+      if (ruffian.y == player.y or ruffian.x == player.x) and
+           :rand.uniform(9) - 1 <= ruffian.p1 do
+        Directions.seek(game, ruffian)
+      else
+        {ruffian.step_x, ruffian.step_y}
       end
 
-    game |> set_step(stat_idx, sx, sy) |> attempt_move(stat_idx)
+    game
+    |> set_step(stat_idx, sx, sy)
+    |> attempt_move(stat_idx)
   end
 
   defp attempt_move(game, stat_idx) do
     ruffian = Enum.at(game.stats, stat_idx)
-    player = Enum.at(game.stats, 0)
     tx = ruffian.x + ruffian.step_x
     ty = ruffian.y + ruffian.step_y
 
     cond do
-      not in_bounds?(tx, ty) -> stop_walking(game, stat_idx)
-      tx == player.x and ty == player.y -> Game.collide_with_player(game, stat_idx)
-      walkable?(game, tx, ty) -> Game.move_stat(game, stat_idx, tx, ty)
-      true -> stop_walking(game, stat_idx)
+      player_at?(game, tx, ty) ->
+        Game.collide_with_player(game, stat_idx)
+
+      walkable?(game, tx, ty) ->
+        game
+        |> Game.move_stat(stat_idx, tx, ty)
+        |> maybe_stop(stat_idx, ruffian.p2)
+
+      true ->
+        stop_walking(game, stat_idx)
+    end
+  end
+
+  defp maybe_stop(game, stat_idx, p2) do
+    if p2 + 8 <= :rand.uniform(17) - 1 do
+      stop_walking(game, stat_idx)
+    else
+      game
     end
   end
 
@@ -75,12 +97,17 @@ defmodule ZztEx.Zzt.AI.Ruffian do
 
   defp stop_walking(game, stat_idx), do: set_step(game, stat_idx, 0, 0)
 
-  defp in_bounds?(x, y), do: x in 1..60 and y in 1..25
-
   defp walkable?(game, x, y) do
     case Game.tile_at(game, x, y) do
       nil -> false
       {element, _color} -> Element.walkable?(element)
+    end
+  end
+
+  defp player_at?(game, x, y) do
+    case Game.tile_at(game, x, y) do
+      {@player, _} -> true
+      _ -> false
     end
   end
 end
