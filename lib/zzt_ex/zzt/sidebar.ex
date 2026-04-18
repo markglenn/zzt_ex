@@ -5,6 +5,17 @@ defmodule ZztEx.Zzt.Sidebar do
   The output shape matches `ZztEx.Zzt.Render.rows/2`: a list of rows, each a
   list of `{char, fg, bg, blink}` tuples. The caller composes the sidebar
   alongside the 60x25 board to reproduce ZZT's 80x25 text-mode display.
+
+  Layout conventions (1-indexed columns):
+
+    * cols 1-3 are always blank blue — the visual gap between the board
+      and the sidebar content
+    * stat rows: icon at col 4, label right-aligned so the colon lands at
+      col 15, value starts at col 16 (no gap between colon and value)
+    * keybind rows: letter at col 4 (on grey or cyan for toggle keys),
+      description at col 7
+    * move / shoot rows: arrow block at cols 9-12, word at col 14, so the
+      two rows align under each other
   """
 
   alias ZztEx.Zzt.{Cp437, World}
@@ -35,15 +46,22 @@ defmodule ZztEx.Zzt.Sidebar do
   @arrow_left 0x1B
   @space 0x20
 
+  @icon_col 3
+  @colon_col 12
+  @value_col 13
+  @desc_col 7
+  @arrow_col 8
+  @word_col 14
+
   @doc "Sidebar width in cells (always 20)."
   def width, do: @width
   @doc "Sidebar height in cells (always 25)."
   def height, do: @height
 
   @doc """
-  Build the sidebar rows from a `%World{}`. Values displayed (health, ammo,
-  keys, etc.) come straight from the world struct — there is no game state
-  yet, so these are the starting values from the `.zzt` header.
+  Build the sidebar rows from a `%World{}`. Values displayed come straight
+  from the world struct — there is no mutable game state yet, so these are
+  the starting values stored in the `.zzt` header.
   """
   @spec rows(World.t()) :: [[cell()]]
   def rows(%World{} = world) do
@@ -53,6 +71,8 @@ defmodule ZztEx.Zzt.Sidebar do
       title_row(),
       dash_row(),
       blank_row(),
+      blank_row(),
+      blank_row(),
       stat_row(@icon_smiley, @white, "Health:", world.health),
       stat_row(@icon_ammo, @cyan, "Ammo:", world.ammo),
       stat_row(@icon_torch, @brown, "Torches:", world.torches),
@@ -61,17 +81,15 @@ defmodule ZztEx.Zzt.Sidebar do
       keys_row(world.keys),
       blank_row(),
       keybind_row(?T, "Torch"),
-      keybind_row(?B, "Be quiet"),
+      keybind_row(?B, "Be quiet", @cyan),
       keybind_row(?H, "Help"),
       blank_row(),
       move_row(),
       shoot_row(),
       blank_row(),
       keybind_row(?S, "Save game"),
-      keybind_row(?P, "Pause"),
+      keybind_row(?P, "Pause", @cyan),
       keybind_row(?Q, "Quit"),
-      blank_row(),
-      blank_row(),
       blank_row()
     ]
   end
@@ -80,8 +98,8 @@ defmodule ZztEx.Zzt.Sidebar do
   defp blank_cell, do: cell(@space, @white, @blue)
   defp blank_row, do: List.duplicate(blank_cell(), @width)
 
-  # Paint `text` onto `row` starting at 1-indexed `col`, using fg/bg for each
-  # cell. Characters that fall past the sidebar edge are silently dropped.
+  # Paint `text` onto `row` starting at 1-indexed `col`. Cells past the
+  # sidebar edge are silently dropped (keeps overlong values from crashing).
   defp paint(row, col, text, fg, bg) when is_binary(text) do
     cells = for <<b <- text>>, do: cell(b, fg, bg)
     overlay(row, col - 1, cells)
@@ -95,65 +113,78 @@ defmodule ZztEx.Zzt.Sidebar do
 
   defp overlay(row, _idx, _cells), do: row
 
+  # The 11-char dash row and 11-char grey title box share the same span so
+  # they line up visually. Both sit at col 5..15.
   defp dash_row do
-    paint(blank_row(), 3, "- - - - - - -", @white, @blue)
+    paint(blank_row(), 6, "- - - - -", @white, @blue)
   end
 
   defp title_row do
-    paint(blank_row(), 8, "  ZZT  ", @black, @grey)
+    paint(blank_row(), 3, "      ZZT      ", @black, @grey)
   end
 
   defp stat_row(icon_byte, icon_fg, label, value) do
-    value_text = Integer.to_string(value)
-    # Right-align the label so every colon lands at column 13.
-    label_col = 14 - String.length(label)
+    label_col = @colon_col - String.length(label) + 1
 
     blank_row()
-    |> paint(3, <<icon_byte>>, icon_fg, @blue)
+    |> paint(@icon_col, <<icon_byte>>, icon_fg, @blue)
     |> paint(label_col, label, @yellow, @blue)
-    |> paint(15, value_text, @white, @blue)
+    |> paint(@value_col, Integer.to_string(value), @yellow, @blue)
   end
 
   defp score_row(score) do
-    value_text = Integer.to_string(score)
+    label_col = @colon_col - String.length("Score:") + 1
 
     blank_row()
-    |> paint(8, "Score:", @yellow, @blue)
-    |> paint(15, value_text, @white, @blue)
+    |> paint(label_col, "Score:", @yellow, @blue)
+    |> paint(@value_col, Integer.to_string(score), @yellow, @blue)
   end
 
   defp keys_row(keys) do
+    label_col = @colon_col - String.length("Keys:") + 1
+
     row =
       blank_row()
-      |> paint(3, <<@icon_key>>, @white, @blue)
-      |> paint(9, "Keys:", @yellow, @blue)
+      |> paint(@icon_col, <<@icon_key>>, @white, @blue)
+      |> paint(label_col, "Keys:", @yellow, @blue)
 
-    # Keys slots 0..6 correspond to blue/green/cyan/red/purple/yellow/white,
-    # which are palette indices 9..15. Render one ♀ glyph per owned key.
+    # Slots 0..6 map to blue/green/cyan/red/purple/yellow/white. The first
+    # five fit inside the 20-col sidebar; any beyond that are dropped by
+    # `overlay/3` — matching ZZT, which also truncates visually.
     keys
     |> Enum.with_index()
     |> Enum.reduce(row, fn
-      {true, idx}, acc -> paint(acc, 15 + idx, <<@icon_key>>, 9 + idx, @blue)
-      {false, _idx}, acc -> acc
+      {true, idx}, acc ->
+        paint(acc, @value_col + idx, <<@icon_key>>, 9 + idx, @blue)
+
+      {false, _idx}, acc ->
+        acc
     end)
   end
 
-  defp keybind_row(letter, description) do
+  # The box color alternates between grey (action keys T/H/S/Q) and cyan
+  # (toggle keys B/P) — matching stock ZZT, where B toggles sound and P
+  # toggles pause.
+  defp keybind_row(letter, description, box_bg \\ @grey) do
     blank_row()
-    |> paint(2, " #{<<letter>>} ", @black, @grey)
-    |> paint(6, description, @white, @blue)
+    |> paint(@icon_col, <<" ", letter, " ">>, @black, box_bg)
+    |> paint(@desc_col, description, @white, @blue)
   end
 
   defp move_row do
     blank_row()
-    |> paint(2, <<@arrow_up, @arrow_down, @arrow_right, @arrow_left>>, @black, @cyan)
-    |> paint(7, "Move", @white, @blue)
+    |> paint(@arrow_col, arrows(), @black, @cyan)
+    |> paint(@word_col, "Move", @white, @blue)
   end
 
+  # "Shift" (grey) + one grey gap char + arrows (grey) form a single
+  # continuous grey bar cols 3..12, matching the original's "white" look.
   defp shoot_row do
     blank_row()
-    |> paint(1, " Shift ", @black, @grey)
-    |> paint(9, <<@arrow_up, @arrow_down, @arrow_right, @arrow_left>>, @black, @cyan)
-    |> paint(14, "Shoot", @white, @blue)
+    |> paint(2, " Shift ", @black, @grey)
+    |> paint(@arrow_col, arrows(), @black, @grey)
+    |> paint(@word_col, "Shoot", @white, @blue)
   end
+
+  defp arrows, do: <<" ", @arrow_up, @arrow_down, @arrow_right, @arrow_left>>
 end

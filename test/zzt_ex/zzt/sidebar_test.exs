@@ -22,55 +22,107 @@ defmodule ZztEx.Zzt.SidebarTest do
     assert Enum.all?(rows, &(length(&1) == 20))
   end
 
-  test "every cell has a blue background by default" do
+  test "column 1 is always blank blue padding" do
+    # Only col 1 is reliably blank on every row; row 19 paints " Shift " at
+    # col 2, so the broader padding claim doesn't hold for every row.
     rows = Sidebar.rows(world())
-    # Count background 1 (blue) cells — any overlay cells (grey/cyan)
-    # will bring this below 500, but the vast majority should stay blue.
-    blue_count =
-      rows
-      |> List.flatten()
-      |> Enum.count(fn {_char, _fg, bg, _blink} -> bg == 1 end)
 
-    total = Sidebar.width() * Sidebar.height()
-    assert blue_count > div(total, 2)
+    for {row, row_idx} <- Enum.with_index(rows) do
+      {char, _fg, bg, _blink} = Enum.at(row, 0)
+      assert {row_idx, char, bg} == {row_idx, " ", 1}
+    end
   end
 
-  test "health row renders smiley + 'Health:' + value" do
+  test "health row renders smiley at col 3 plus yellow 'Health:93'" do
     rows = Sidebar.rows(world(health: 93))
-    # Row order: blank, dash, title, dash, blank, then Health.
-    health_row = Enum.at(rows, 5)
+    # Row order: blank, dash, title, dash, then three blank rows, then Health.
+    health_row = Enum.at(rows, 7)
     text = cell_string(health_row)
 
-    assert text =~ "Health:"
-    assert text =~ "93"
-    # Smiley glyph at col 3 (CP437 0x02 → ☻ U+263B).
-    {char, _fg, _bg, _blink} = Enum.at(health_row, 2)
+    assert text =~ "Health:93"
+    # Smiley glyph at col 3 (idx 2), CP437 0x02 → ☻ U+263B.
+    {char, fg, bg, _blink} = Enum.at(health_row, 2)
     assert char == <<0x263B::utf8>>
+    assert {fg, bg} == {15, 1}
+
+    # "Health:" right-aligned with colon at col 12 → label at col 6 (idx 5).
+    {label_char, label_fg, _bg, _blink} = Enum.at(health_row, 5)
+    assert label_char == "H"
+    assert label_fg == 14
+
+    # Value at col 13 (idx 12) is yellow.
+    {value_char, value_fg, _bg, _blink} = Enum.at(health_row, 12)
+    assert value_char == "9"
+    assert value_fg == 14
   end
 
-  test "owned keys render as colored ♀ glyphs" do
-    rows = Sidebar.rows(world(keys: [true, false, false, true, false, false, false]))
-    keys_row = Enum.at(rows, 10)
-    # Keys slots start at column 15. Slot 0 (blue key) is index 14, slot 3
-    # (red key) is index 17. Off-slots stay as the default blue-bg space.
-    {_char, fg0, _bg, _blink} = Enum.at(keys_row, 14)
-    {_char, fg3, _bg, _blink} = Enum.at(keys_row, 17)
-    {_char, fg1, _bg, _blink} = Enum.at(keys_row, 15)
+  test "score row has the label right-aligned so the colon lands at col 12" do
+    rows = Sidebar.rows(world(score: 30))
+    text = cell_string(Enum.at(rows, 11))
 
-    # Palette 9 = light blue, 12 = light red.
+    # "Score:" starts at col 7 (idx 6) so the ':' lands at col 12 (idx 11).
+    assert String.slice(text, 6, 6) == "Score:"
+    # Value "30" starts at col 13 (idx 12), right after the colon.
+    assert String.slice(text, 12, 2) == "30"
+  end
+
+  test "owned keys render as colored ♀ glyphs starting at col 13" do
+    rows = Sidebar.rows(world(keys: [true, false, false, true, false, false, false]))
+    keys_row = Enum.at(rows, 12)
+
+    # Slot 0 (blue key) at col 13 (idx 12), slot 3 (red key) at col 16 (idx 15).
+    {_char, fg0, _bg, _blink} = Enum.at(keys_row, 12)
+    {_char, fg3, _bg, _blink} = Enum.at(keys_row, 15)
+    {_char, fg1, _bg, _blink} = Enum.at(keys_row, 13)
+
     assert fg0 == 9
     assert fg3 == 12
     # Unowned slot keeps the default white-on-blue blank.
     assert fg1 == 15
   end
 
-  test "score row has the label right-aligned to column 13" do
-    rows = Sidebar.rows(world(score: 30))
-    text = cell_string(Enum.at(rows, 9))
+  test "T and H keybind rows use the grey key box" do
+    rows = Sidebar.rows(world())
+    torch_row = Enum.at(rows, 14)
+    help_row = Enum.at(rows, 16)
 
-    # "Score:" starts at col 8 (1-based) so the ':' lands at col 13.
-    assert String.slice(text, 7, 6) == "Score:"
-    # Value at col 15..
-    assert String.slice(text, 14, 2) == "30"
+    # The key box is " X " painted at col 3; the letter sits at col 4 (idx 3).
+    for row <- [torch_row, help_row] do
+      {_char, fg, bg, _blink} = Enum.at(row, 3)
+      assert {fg, bg} == {0, 7}
+    end
+  end
+
+  test "B (Be quiet) and P (Pause) use a cyan key box instead of grey" do
+    rows = Sidebar.rows(world())
+    be_quiet_row = Enum.at(rows, 15)
+    pause_row = Enum.at(rows, 22)
+
+    for row <- [be_quiet_row, pause_row] do
+      {_char, fg, bg, _blink} = Enum.at(row, 3)
+      assert {fg, bg} == {0, 3}
+    end
+  end
+
+  test "Move and Shoot rows align their arrow blocks and labels" do
+    rows = Sidebar.rows(world())
+    move_row = Enum.at(rows, 18)
+    shoot_row = Enum.at(rows, 19)
+
+    move_text = cell_string(move_row)
+    shoot_text = cell_string(shoot_row)
+
+    # Word "Move"/"Shoot" starts at col 14 (idx 13) on both rows.
+    assert String.slice(move_text, 13, 4) == "Move"
+    assert String.slice(shoot_text, 13, 5) == "Shoot"
+
+    # Shoot's grey bar runs continuously from "Shift" through the arrows.
+    assert {_c, _fg, 7, _b} = Enum.at(shoot_row, 2)
+    assert {_c, _fg, 7, _b} = Enum.at(shoot_row, 7)
+    assert {_c, _fg, 7, _b} = Enum.at(shoot_row, 11)
+
+    # Move row keeps cyan for the arrow block instead.
+    assert {_c, _fg, 3, _b} = Enum.at(move_row, 8)
+    assert {_c, _fg, 3, _b} = Enum.at(move_row, 11)
   end
 end
