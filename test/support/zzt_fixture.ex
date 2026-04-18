@@ -8,8 +8,9 @@ defmodule ZztEx.Test.ZztFixture do
   player.
   """
 
+  alias ZztEx.Zzt.Stat
+
   @tile_count 1500
-  @player_char 0x02
 
   @doc """
   Build a complete world binary. Options:
@@ -18,6 +19,8 @@ defmodule ZztEx.Test.ZztFixture do
     * `:board_title`  — title of the single board (default `"Board 1"`)
     * `:tiles`        — list of `{element, color}` tuples, length 1500
     * `:player_xy`    — `{x, y}` for player stat (default `{30, 13}`)
+    * `:stats`        — full stat list (including player at index 0) as
+      `%ZztEx.Zzt.Stat{}` structs; overrides `:player_xy`
   """
   def world(opts \\ []) do
     header(opts) <> board(opts)
@@ -65,18 +68,27 @@ defmodule ZztEx.Test.ZztFixture do
   defp board(opts) do
     title = Keyword.get(opts, :board_title, "Board 1")
     tiles = Keyword.get(opts, :tiles, List.duplicate({0, 0}, @tile_count))
-    {px, py} = Keyword.get(opts, :player_xy, {30, 13})
+
+    stats =
+      case Keyword.get(opts, :stats) do
+        nil ->
+          {px, py} = Keyword.get(opts, :player_xy, {30, 13})
+          [%Stat{x: px, y: py}]
+
+        list when is_list(list) ->
+          list
+      end
 
     tile_bytes = rle_encode(tiles)
-    props = properties()
-    player_stat = stat(px, py, @player_char, 0x1F)
+    stat_count = length(stats) - 1
+    props = properties(stat_count)
+    stat_bytes = Enum.map_join(stats, "", &encode_stat/1)
 
-    body = pascal(title, 50) <> tile_bytes <> props <> player_stat
+    body = pascal(title, 50) <> tile_bytes <> props <> stat_bytes
     <<byte_size(body)::little-unsigned-16>> <> body
   end
 
-  defp properties do
-    # stat_count = 0 => 1 stat
+  defp properties(stat_count) do
     <<
       # max_shots
       255,
@@ -102,35 +114,27 @@ defmodule ZztEx.Test.ZztFixture do
         0::little-signed-16
       >> <>
       :binary.copy(<<0>>, 16) <>
-      <<0::little-signed-16>>
+      <<stat_count::little-signed-16>>
   end
 
-  defp stat(x, y, _char, _color) do
+  defp encode_stat(%Stat{} = s) do
     <<
-      x,
-      y,
-      # step_x, step_y
-      0::little-signed-16,
-      0::little-signed-16,
-      # cycle
-      1::little-signed-16,
-      # p1, p2, p3
-      0,
-      0,
-      0,
-      # follower, leader
-      -1::little-signed-16,
-      -1::little-signed-16,
-      # under_element, under_color
-      0,
-      0,
-      # pointer
+      s.x,
+      s.y,
+      s.step_x::little-signed-16,
+      s.step_y::little-signed-16,
+      s.cycle::little-signed-16,
+      s.p1,
+      s.p2,
+      s.p3,
+      s.follower::little-signed-16,
+      s.leader::little-signed-16,
+      s.under_element,
+      s.under_color,
       0::little-32,
-      # instruction
-      0::little-signed-16,
-      # bound (no code)
-      0::little-signed-16
-    >> <> :binary.copy(<<0>>, 8)
+      s.instruction::little-signed-16,
+      byte_size(s.code)::little-signed-16
+    >> <> :binary.copy(<<0>>, 8) <> s.code
   end
 
   defp rle_encode(tiles), do: rle_encode(tiles, <<>>)

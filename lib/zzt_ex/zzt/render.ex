@@ -2,96 +2,183 @@ defmodule ZztEx.Zzt.Render do
   @moduledoc """
   Translate parsed board tiles into renderable cells.
 
-  A rendered cell is a `{char, fg, bg}` tuple, where `char` is a one-character
-  UTF-8 binary (CP437-decoded), `fg` is a foreground palette index 0..15, and
-  `bg` is a background palette index 0..7.
+  A rendered cell is `{char, fg, bg, blink}` where:
 
-  Object elements (ID 36) use their stat's `p1` as the display character; the
-  board stat list is walked once to build a position → stat index so the
-  renderer can resolve object glyphs in a single pass.
+    * `char`  — one-character UTF-8 binary, CP437-decoded
+    * `fg`    — foreground palette index 0..15
+    * `bg`    — background palette index 0..7
+    * `blink` — whether the foreground should blink (high bit of color)
+
+  This module models ZZT's draw layer: animated elements cycle chars based
+  on the caller-supplied `:tick`, directional elements read the stat's step
+  vector, Line picks its box-drawing glyph from its 4 cardinal neighbors,
+  and the high bit of the color byte surfaces as a blink flag.
   """
 
   alias ZztEx.Zzt.{Board, Cp437, Element, Stat}
 
-  @type cell :: {char :: String.t(), fg :: 0..15, bg :: 0..15}
+  @type cell :: {char :: String.t(), fg :: 0..15, bg :: 0..15, blink :: boolean()}
+
+  @empty 0
+  @board_edge 1
+  @star 15
+  @conveyor_cw 16
+  @conveyor_ccw 17
+  @invisible 28
+  @transporter 30
+  @line 31
+  @object 36
+  @spinning_gun 39
+  @pusher 40
+
+  # ZZT animation frame tables, lifted from Elements.pas in the 2020 source
+  # release. All indices are 0-based.
+  @star_chars {0x2F, 0x7C, 0x5C, 0x2D}
+  @conveyor_cw_chars {0xB3, 0x2F, 0xC4, 0x5C}
+  @conveyor_ccw_chars {0xB3, 0x5C, 0xC4, 0x2F}
+  # Transporter: frames 0..3 are "inbound" (west/north), 4..7 are "outbound"
+  # (east/south). Selected by the stat's step vector.
+  @transporter_ns {0x5E, 0x7E, 0x5E, 0x2D, 0x76, 0x5F, 0x76, 0x2D}
+  @transporter_ew {0x28, 0x3C, 0x28, 0x2D, 0x29, 0x3E, 0x29, 0x2D}
+  @gun_chars {0x18, 0x1A, 0x19, 0x1B}
+  # Line: indexed by (1 + north + south*2 + west*4 + east*8), -1 to make 0-based.
+  @line_chars {0xF9, 0xD0, 0xD2, 0xBA, 0xB5, 0xBC, 0xBB, 0xB9, 0xC6, 0xC8, 0xC9, 0xCC, 0xCD, 0xCA,
+               0xCB, 0xCE}
 
   @doc """
   Render `board` as a list of 25 rows, each a list of 60 `cell` tuples.
 
-  Pass `title_screen?: true` when rendering board 0 of a world — ZZT hides
-  the player avatar on the title screen (the runtime swaps the Player tile
-  for a Monitor), so the smiley face shouldn't appear there.
+  Options:
+
+    * `:tick`           — integer advanced by the caller each animation
+      frame. Drives Star, Conveyor, Transporter, SpinningGun cycling.
+    * `:title_screen?`  — blank the player avatar (ZZT swaps it for a
+      Monitor on board 0).
   """
   @spec rows(Board.t(), keyword()) :: [[cell()]]
   def rows(%Board{} = board, opts \\ []) do
+    tick = Keyword.get(opts, :tick, 0)
     title_screen? = Keyword.get(opts, :title_screen?, false)
-    stat_chars = stat_char_overrides(board.stats)
+    stats_by_xy = stats_by_position(board.stats)
     player_pos = title_screen? && player_position(board.stats)
+    grid = List.to_tuple(board.tiles)
 
-    board.tiles
-    |> Enum.chunk_every(Board.width())
-    |> Enum.with_index(1)
-    |> Enum.map(fn {row_tiles, y} ->
-      row_tiles
-      |> Enum.with_index(1)
-      |> Enum.map(fn {{element, color}, x} ->
+    for y <- 1..Board.height() do
+      for x <- 1..Board.width() do
         if player_pos == {x, y} do
-          {" ", 7, 0}
+          {" ", 7, 0, false}
         else
-          cell(element, color, Map.get(stat_chars, {x, y}))
+          {element, color} = tile_at(grid, x, y)
+          compute_cell(grid, x, y, element, color, Map.get(stats_by_xy, {x, y}), tick)
         end
-      end)
+      end
+    end
+  end
+
+  defp compute_cell(grid, x, y, element, color, stat, tick) do
+    cond do
+      # Empty and Invisible are always drawn blank; see the Foundation
+      # commit for why stored color/char bytes leak through otherwise.
+      element == @empty or element == @invisible ->
+        {" ", 7, 0, false}
+
+      Element.text?(element) ->
+        bg = Element.text_background(element) || 0
+        {Cp437.char(color), 15, bg, false}
+
+      true ->
+        <<bg_nibble::4, fg::4>> = <<color>>
+        bg = Bitwise.band(bg_nibble, 0x07)
+        blink = Bitwise.band(color, 0x80) != 0
+        {char_byte, fg} = draw(element, stat, tick, grid, x, y, fg)
+        {Cp437.char(char_byte), fg, bg, blink}
+    end
+  end
+
+  # Returns {char_byte, fg}. Most elements keep the stored fg; Star overrides
+  # it because ZZT cycles star color each draw.
+  defp draw(@star, _stat, tick, _grid, _x, _y, _fg),
+    do: {elem(@star_chars, rem(tick, 4)), 9 + rem(tick, 7)}
+
+  defp draw(@conveyor_cw, _stat, tick, _grid, _x, _y, fg),
+    do: {elem(@conveyor_cw_chars, rem(tick, 4)), fg}
+
+  defp draw(@conveyor_ccw, _stat, tick, _grid, _x, _y, fg),
+    do: {elem(@conveyor_ccw_chars, rem(tick, 4)), fg}
+
+  defp draw(@spinning_gun, _stat, tick, _grid, _x, _y, fg),
+    do: {elem(@gun_chars, rem(tick, 4)), fg}
+
+  defp draw(@transporter, %Stat{} = stat, tick, _grid, _x, _y, fg),
+    do: {transporter_char(stat.step_x, stat.step_y, tick), fg}
+
+  defp draw(@pusher, %Stat{} = stat, _tick, _grid, _x, _y, fg),
+    do: {pusher_char(stat.step_x, stat.step_y), fg}
+
+  defp draw(@object, %Stat{p1: p1}, _tick, _grid, _x, _y, fg),
+    do: {p1, fg}
+
+  defp draw(@line, _stat, _tick, grid, x, y, fg),
+    do: {line_char(grid, x, y), fg}
+
+  defp draw(element, _stat, _tick, _grid, _x, _y, fg),
+    do: {Element.default_char(element), fg}
+
+  defp pusher_char(1, _), do: 0x10
+  defp pusher_char(-1, _), do: 0x11
+  defp pusher_char(_, -1), do: 0x1E
+  defp pusher_char(_, _), do: 0x1F
+
+  defp transporter_char(0, step_y, tick) do
+    offset = if step_y == 1, do: 4, else: 0
+    elem(@transporter_ns, offset + rem(tick, 4))
+  end
+
+  defp transporter_char(step_x, _step_y, tick) do
+    offset = if step_x == 1, do: 4, else: 0
+    elem(@transporter_ew, offset + rem(tick, 4))
+  end
+
+  defp line_char(grid, x, y) do
+    n = line_neighbor?(grid, x, y - 1)
+    s = line_neighbor?(grid, x, y + 1)
+    w = line_neighbor?(grid, x - 1, y)
+    e = line_neighbor?(grid, x + 1, y)
+
+    v =
+      if(n, do: 1, else: 0) +
+        if(s, do: 2, else: 0) +
+        if(w, do: 4, else: 0) +
+        if e, do: 8, else: 0
+
+    elem(@line_chars, v)
+  end
+
+  # Off-board is treated as a connecting neighbor so lines at the edge
+  # reach out to the playfield border, matching ZZT's behavior.
+  defp line_neighbor?(_grid, x, _y) when x < 1, do: true
+  defp line_neighbor?(_grid, _x, y) when y < 1, do: true
+
+  defp line_neighbor?(_grid, x, _y) when x > 60, do: true
+  defp line_neighbor?(_grid, _x, y) when y > 25, do: true
+
+  defp line_neighbor?(grid, x, y) do
+    {e, _} = tile_at(grid, x, y)
+    e == @line or e == @board_edge
+  end
+
+  defp tile_at(grid, x, y), do: elem(grid, (y - 1) * Board.width() + (x - 1))
+
+  # Stats after index 0 map by their {x,y}. Player is excluded so the
+  # title-screen blanking and the main tile lookup don't compete.
+  defp stats_by_position(stats) do
+    stats
+    |> Enum.drop(1)
+    |> Enum.reduce(%{}, fn
+      %Stat{x: x, y: y} = stat, acc -> Map.put(acc, {x, y}, stat)
     end)
   end
 
   defp player_position([%Stat{x: x, y: y} | _]), do: {x, y}
   defp player_position(_), do: nil
-
-  @object 36
-  @invisible 28
-  @empty 0
-
-  defp cell(element, color, stat_char) do
-    cond do
-      # Empty tiles carry residual color bytes left over from whatever
-      # element the editor previously placed there. ZZT always draws them
-      # as pure black; mirroring the stored bg surfaces editor ghosts as
-      # visible grey/green/cyan blocks (e.g. town.zzt's Tigers building).
-      element == @empty ->
-        {" ", 7, 0}
-
-      # Invisible walls are stored with the color they'll reveal as, but
-      # ZZT draws them as fully blank until the player bumps one.
-      element == @invisible ->
-        {" ", 7, 0}
-
-      Element.text?(element) ->
-        bg = Element.text_background(element) || 0
-        {Cp437.char(color), 15, bg}
-
-      true ->
-        <<bg::4, fg::4>> = <<color>>
-        bg = Bitwise.band(bg, 0x07)
-
-        char_byte =
-          if element == @object and stat_char, do: stat_char, else: Element.default_char(element)
-
-        {Cp437.char(char_byte), fg, bg}
-    end
-  end
-
-  # Index every non-player stat by its tile coordinate so object glyphs can
-  # be resolved without another pass. Only element 36 (Object) actually uses
-  # the override; `cell/3` ignores it for every other element.
-  defp stat_char_overrides(stats) do
-    stats
-    |> Enum.with_index()
-    |> Enum.reduce(%{}, fn
-      {%Stat{x: x, y: y, p1: p1}, idx}, acc when idx > 0 ->
-        Map.put(acc, {x, y}, p1)
-
-      _, acc ->
-        acc
-    end)
-  end
 end

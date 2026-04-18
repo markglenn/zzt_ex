@@ -260,3 +260,16 @@
 .zzt-c.bg7 {
   background: var(--zzt-c7);
 }
+
+/* High bit of a ZZT color byte means the foreground blinks. EGA/VGA text
+   mode toggles visibility at ~1.875 Hz; steps(2) keeps the transition
+   hard-edged instead of fading. The background stays put. */
+@keyframes zzt-blink {
+  50% {
+    color: transparent;
+  }
+}
+
+.zzt-c.blink {
+  animation: zzt-blink 0.533s steps(2, end) infinite;
+}

@@ -11,16 +11,23 @@ defmodule ZztExWeb.GameLive.Play do
   alias ZztEx.Games
   alias ZztEx.Zzt.{Board, Render, World}
 
+  # ZZT runs at ~9 Hz natively; 125ms (8 fps) is close enough for
+  # star/conveyor/transporter cycling without hammering LiveView diffs.
+  @tick_interval_ms 125
+
   @impl true
   def mount(%{"slug" => slug}, _session, socket) do
     case Games.load(slug) do
       {:ok, world, listing} ->
+        if connected?(socket), do: Process.send_after(self(), :tick, @tick_interval_ms)
+
         {:ok,
          socket
          |> assign(:slug, slug)
          |> assign(:listing, listing)
          |> assign(:world, world)
          |> assign(:page_title, listing.name)
+         |> assign(:tick, 0)
          |> select_board(world.current_board)}
 
       :error ->
@@ -44,6 +51,20 @@ defmodule ZztExWeb.GameLive.Play do
     {:noreply, select_board(socket, socket.assigns.board_index - 1)}
   end
 
+  @impl true
+  def handle_info(:tick, socket) do
+    Process.send_after(self(), :tick, @tick_interval_ms)
+    tick = socket.assigns.tick + 1
+
+    rows =
+      Render.rows(socket.assigns.board,
+        tick: tick,
+        title_screen?: socket.assigns.board_index == 0
+      )
+
+    {:noreply, assign(socket, tick: tick, rows: rows)}
+  end
+
   defp select_board(%{assigns: %{world: world}} = socket, index) do
     last = length(world.boards) - 1
     clamped = index |> max(0) |> min(last)
@@ -52,7 +73,10 @@ defmodule ZztExWeb.GameLive.Play do
     socket
     |> assign(:board_index, clamped)
     |> assign(:board, board)
-    |> assign(:rows, Render.rows(board, title_screen?: clamped == 0))
+    |> assign(
+      :rows,
+      Render.rows(board, tick: socket.assigns.tick, title_screen?: clamped == 0)
+    )
   end
 
   @impl true
@@ -130,7 +154,7 @@ defmodule ZztExWeb.GameLive.Play do
   defp board_view(assigns) do
     ~H"""
     <div class="zzt-board" aria-label={"ZZT board, #{Board.width()} by #{Board.height()}"}>
-      <pre class="zzt-grid" phx-no-curly-interpolation><%= for row <- @rows do %><div class="zzt-row"><%= for {char, fg, bg} <- row do %><span class={"zzt-c fg#{fg} bg#{bg}"}><%= char %></span><% end %></div><% end %></pre>
+      <pre class="zzt-grid" phx-no-curly-interpolation><%= for row <- @rows do %><div class="zzt-row"><%= for {char, fg, bg, blink} <- row do %><span class={["zzt-c", "fg#{fg}", "bg#{bg}", blink && "blink"]}><%= char %></span><% end %></div><% end %></pre>
     </div>
     """
   end

@@ -2,74 +2,147 @@ defmodule ZztEx.Zzt.RenderTest do
   use ExUnit.Case, async: true
 
   alias ZztEx.Test.ZztFixture
-  alias ZztEx.Zzt.{Render, World}
+  alias ZztEx.Zzt.{Board, Render, Stat, World}
+
+  @width Board.width()
+
+  defp put_tile(tiles, x, y, tile), do: List.replace_at(tiles, (y - 1) * @width + (x - 1), tile)
+
+  defp empty_tiles, do: List.duplicate({0, 0}, @width * Board.height())
+
+  defp cell_at(rows, x, y), do: rows |> Enum.at(y - 1) |> Enum.at(x - 1)
+
+  defp render(tiles, opts \\ []) do
+    stats = Keyword.get(opts, :stats, nil)
+
+    binary =
+      if stats do
+        ZztFixture.world(tiles: tiles, stats: stats)
+      else
+        ZztFixture.world(tiles: tiles)
+      end
+
+    {:ok, world} = World.parse(binary)
+    [board] = world.boards
+    Render.rows(board, Keyword.take(opts, [:tick, :title_screen?]))
+  end
 
   test "produces 25 rows of 60 cells" do
-    {:ok, world} = World.parse(ZztFixture.world())
-    [board] = world.boards
-    rows = Render.rows(board)
+    rows = render(empty_tiles())
 
     assert length(rows) == 25
     assert Enum.all?(rows, &(length(&1) == 60))
   end
 
-  test "empty tile renders as space on black with grey foreground" do
-    {:ok, world} = World.parse(ZztFixture.world())
-    [board] = world.boards
-    [first_row | _] = Render.rows(board)
-    {char, _fg, bg} = hd(first_row)
-
-    assert char == " "
-    assert bg == 0
+  test "empty tile renders as blank black cell" do
+    rows = render(empty_tiles())
+    assert cell_at(rows, 1, 1) == {" ", 7, 0, false}
   end
 
   test "title_screen? hides the player at stat 0's position" do
-    # Fixture places stat 0 at (30, 13); put a Player tile there to match.
-    # Row-major index for (30, 13): (13 - 1) * 60 + (30 - 1) = 749.
-    tiles = List.replace_at(List.duplicate({0, 0}, 1500), 749, {4, 0x1F})
-    {:ok, world} = World.parse(ZztFixture.world(tiles: tiles))
-    [board] = world.boards
+    tiles = put_tile(empty_tiles(), 30, 13, {4, 0x1F})
 
-    normal = Render.rows(board) |> Enum.at(12) |> Enum.at(29)
-    hidden = Render.rows(board, title_screen?: true) |> Enum.at(12) |> Enum.at(29)
+    normal = render(tiles) |> cell_at(30, 13)
+    hidden = render(tiles, title_screen?: true) |> cell_at(30, 13)
 
-    # On a playable board we see the smiley face (CP437 0x02 → ☻).
     assert elem(normal, 0) == <<0x263B::utf8>>
-    # On the title screen the same cell is blank.
-    assert hidden == {" ", 7, 0}
+    assert hidden == {" ", 7, 0, false}
   end
 
-  test "empty tiles ignore residual color bytes and render as pure black" do
-    # town.zzt's Tigers building has empty tiles with left-over color 0x73
-    # (grey bg / cyan fg). ZZT draws these as black; we must too.
-    tiles = List.replace_at(List.duplicate({0, 0}, 1500), 0, {0, 0x73})
-    {:ok, world} = World.parse(ZztFixture.world(tiles: tiles))
-    [board] = world.boards
-    [[cell | _] | _] = Render.rows(board)
-
-    assert cell == {" ", 7, 0}
+  test "empty tiles ignore residual color bytes (town.zzt editor ghosts)" do
+    tiles = put_tile(empty_tiles(), 1, 1, {0, 0x73})
+    assert cell_at(render(tiles), 1, 1) == {" ", 7, 0, false}
   end
 
-  test "invisible walls render as blank regardless of stored color" do
-    # Invisible with color 0x4F would be a red block if rendered literally.
-    tiles = List.replace_at(List.duplicate({0, 0}, 1500), 0, {28, 0x4F})
-    {:ok, world} = World.parse(ZztFixture.world(tiles: tiles))
-    [board] = world.boards
-    [[cell | _] | _] = Render.rows(board)
-
-    assert cell == {" ", 7, 0}
+  test "invisible walls render blank regardless of stored color" do
+    tiles = put_tile(empty_tiles(), 1, 1, {28, 0x4F})
+    assert cell_at(render(tiles), 1, 1) == {" ", 7, 0, false}
   end
 
   test "decodes foreground and background from the color byte" do
     # Solid (21) with color 0x4F = red bg, white fg
-    tiles = List.replace_at(List.duplicate({0, 0}, 1500), 0, {21, 0x4F})
-    {:ok, world} = World.parse(ZztFixture.world(tiles: tiles))
-    [board] = world.boards
-    [[{char, fg, bg} | _] | _] = Render.rows(board)
+    tiles = put_tile(empty_tiles(), 1, 1, {21, 0x4F})
+    {char, fg, bg, blink} = cell_at(render(tiles), 1, 1)
 
     assert fg == 15
     assert bg == 4
+    assert blink == false
     # Solid block glyph
     assert char == <<0x2588::utf8>>
+  end
+
+  test "sets blink flag when the high bit of the color byte is set" do
+    # 0x8F = blink + fg 15; bg still 0 after masking the blink bit.
+    tiles = put_tile(empty_tiles(), 1, 1, {21, 0x8F})
+    {_char, fg, bg, blink} = cell_at(render(tiles), 1, 1)
+
+    assert blink == true
+    assert fg == 15
+    assert bg == 0
+  end
+
+  test "pusher glyph follows its stat's step direction" do
+    # Pusher (40) facing east.
+    tiles = put_tile(empty_tiles(), 10, 5, {40, 0x0F})
+    stats = [player_stat(), pusher_stat(10, 5, step_x: 1)]
+    {char, _fg, _bg, _blink} = cell_at(render(tiles, stats: stats), 10, 5)
+    # CP437 0x10 = ► (U+25BA)
+    assert char == <<0x25BA::utf8>>
+
+    stats = [player_stat(), pusher_stat(10, 5, step_x: -1)]
+    assert elem(cell_at(render(tiles, stats: stats), 10, 5), 0) == <<0x25C4::utf8>>
+
+    stats = [player_stat(), pusher_stat(10, 5, step_y: -1)]
+    assert elem(cell_at(render(tiles, stats: stats), 10, 5), 0) == <<0x25B2::utf8>>
+
+    stats = [player_stat(), pusher_stat(10, 5, step_y: 1)]
+    assert elem(cell_at(render(tiles, stats: stats), 10, 5), 0) == <<0x25BC::utf8>>
+  end
+
+  test "star cycles through four frames as tick advances" do
+    tiles = put_tile(empty_tiles(), 1, 1, {15, 0x0F})
+    frames = for t <- 0..3, do: elem(cell_at(render(tiles, tick: t), 1, 1), 0)
+
+    # /, |, \, - in CP437/ASCII
+    assert frames == ["/", "|", "\\", "-"]
+  end
+
+  test "star cycles foreground color 9..15 independent of stored color" do
+    tiles = put_tile(empty_tiles(), 1, 1, {15, 0x0F})
+    fgs = for t <- 0..6, do: elem(cell_at(render(tiles, tick: t), 1, 1), 1)
+    assert fgs == [9, 10, 11, 12, 13, 14, 15]
+  end
+
+  test "line element picks glyph from cardinal neighbors" do
+    # Isolated line in the middle of the board → bullet-dot ∙ (0xF9).
+    tiles = put_tile(empty_tiles(), 30, 12, {31, 0x0F})
+    assert elem(cell_at(render(tiles), 30, 12), 0) == <<0x2219::utf8>>
+
+    # Horizontal run of three lines → middle becomes ═ (0xCD).
+    tiles =
+      empty_tiles()
+      |> put_tile(29, 12, {31, 0x0F})
+      |> put_tile(30, 12, {31, 0x0F})
+      |> put_tile(31, 12, {31, 0x0F})
+
+    assert elem(cell_at(render(tiles), 30, 12), 0) == <<0x2550::utf8>>
+  end
+
+  test "line at the board edge treats the edge as a connector" do
+    # A line at the top-left corner sees its N and W neighbors as edges, so
+    # the glyph carries segments going up and left → ╝ (CP437 0xBC).
+    tiles = put_tile(empty_tiles(), 1, 1, {31, 0x0F})
+    assert elem(cell_at(render(tiles), 1, 1), 0) == <<0x255D::utf8>>
+  end
+
+  defp player_stat, do: %Stat{x: 30, y: 13}
+
+  defp pusher_stat(x, y, opts) do
+    %Stat{
+      x: x,
+      y: y,
+      step_x: Keyword.get(opts, :step_x, 0),
+      step_y: Keyword.get(opts, :step_y, 0)
+    }
   end
 end
