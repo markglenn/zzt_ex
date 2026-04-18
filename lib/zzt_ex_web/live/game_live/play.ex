@@ -7,7 +7,7 @@ defmodule ZztExWeb.GameLive.Play do
   use ZztExWeb, :live_view
 
   alias ZztEx.Games
-  alias ZztEx.Zzt.{Board, Render, Sidebar, World}
+  alias ZztEx.Zzt.{Board, Game, Render, Sidebar}
 
   # ZZT's GameSpeeds table: the number of 18.2 Hz BIOS ticks waited between
   # stat passes, per in-game speed setting 1..9. Speed 4 is the default,
@@ -35,16 +35,17 @@ defmodule ZztExWeb.GameLive.Play do
         if connected?(socket),
           do: Process.send_after(self(), :tick, interval_ms(@default_speed))
 
+        game = Game.new(world)
+
         {:ok,
          socket
          |> assign(:slug, slug)
          |> assign(:listing, listing)
          |> assign(:world, world)
          |> assign(:page_title, listing.name)
-         |> assign(:tick, 0)
          |> assign(:speed, @default_speed)
-         |> assign(:sidebar_rows, Sidebar.rows(world))
-         |> select_board(world.current_board)}
+         |> assign(:game, game)
+         |> select_board(game.board_index)}
 
       :error ->
         {:ok,
@@ -75,31 +76,42 @@ defmodule ZztExWeb.GameLive.Play do
   @impl true
   def handle_info(:tick, socket) do
     Process.send_after(self(), :tick, interval_ms(socket.assigns.speed))
-    tick = socket.assigns.tick + 1
-
-    rows =
-      Render.rows(socket.assigns.board,
-        tick: tick,
-        title_screen?: socket.assigns.board_index == 0
-      )
-
-    {:noreply, assign(socket, tick: tick, board_rows: rows)}
+    game = Game.advance(socket.assigns.game)
+    {:noreply, refresh_rows(socket, game)}
   end
 
   defp interval_ms(speed), do: Map.fetch!(@speed_bios_ticks, speed) * 55
 
-  defp select_board(%{assigns: %{world: world}} = socket, index) do
+  defp select_board(%{assigns: %{world: world, game: game}} = socket, index) do
     last = length(world.boards) - 1
     clamped = index |> max(0) |> min(last)
-    board = World.board(world, clamped)
+
+    new_game =
+      if clamped == game.board_index do
+        game
+      else
+        # Switching boards resets the runtime state for that board, just
+        # like walking through a board edge in ZZT. Inventory is preserved
+        # via the current player map.
+        fresh = Game.new(world, clamped)
+        %{fresh | player: game.player}
+      end
+
+    refresh_rows(socket, new_game)
+  end
+
+  defp refresh_rows(socket, game) do
+    board = Game.to_board(game)
 
     socket
-    |> assign(:board_index, clamped)
-    |> assign(:board, board)
+    |> assign(:game, game)
+    |> assign(:board_index, game.board_index)
+    |> assign(:board, game.board)
     |> assign(
       :board_rows,
-      Render.rows(board, tick: socket.assigns.tick, title_screen?: clamped == 0)
+      Render.rows(board, tick: game.stat_tick, title_screen?: game.board_index == 0)
     )
+    |> assign(:sidebar_rows, Sidebar.rows(game.player))
   end
 
   @impl true

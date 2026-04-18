@@ -97,6 +97,15 @@ defmodule ZztEx.Zzt.Element do
   def default_char(id) when id in 54..255, do: 0x3F
   def text?(id) when id in 54..255, do: false
 
+  # Elements that monsters and the player can move onto. Mirrors ZZT's
+  # `ElementDefs[X].Walkable` flags: Empty, Water (splashes), and Fake
+  # walls (look solid, aren't).
+  @walkable [0, 19, 27]
+
+  @doc "Whether a monster or the player can step onto `id`."
+  @spec walkable?(0..255) :: boolean()
+  def walkable?(id), do: id in @walkable
+
   @doc """
   Background palette index for a text element (47..53), or `nil` otherwise.
 

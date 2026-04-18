@@ -18,7 +18,7 @@ defmodule ZztEx.Zzt.Sidebar do
       two rows align under each other
   """
 
-  alias ZztEx.Zzt.{Cp437, World}
+  alias ZztEx.Zzt.Cp437
 
   @type cell :: {String.t(), 0..15, 0..15, boolean()}
 
@@ -59,12 +59,14 @@ defmodule ZztEx.Zzt.Sidebar do
   def height, do: @height
 
   @doc """
-  Build the sidebar rows from a `%World{}`. Values displayed come straight
-  from the world struct — there is no mutable game state yet, so these are
-  the starting values stored in the `.zzt` header.
+  Build the sidebar rows from any struct/map that has the expected
+  player-stat fields (`:health`, `:ammo`, `:gems`, `:keys`, `:torches`,
+  `:score`). A `%World{}` matches out of the box; the runtime
+  `ZztEx.Zzt.Game.player_state()` also matches, so the same renderer
+  works for the world header and for live play.
   """
-  @spec rows(World.t()) :: [[cell()]]
-  def rows(%World{} = world) do
+  @spec rows(map()) :: [[cell()]]
+  def rows(state) do
     [
       blank_row(),
       dash_row(),
@@ -73,12 +75,12 @@ defmodule ZztEx.Zzt.Sidebar do
       blank_row(),
       blank_row(),
       blank_row(),
-      stat_row(@icon_smiley, @white, "Health:", world.health),
-      stat_row(@icon_ammo, @cyan, "Ammo:", world.ammo),
-      stat_row(@icon_torch, @brown, "Torches:", world.torches),
-      stat_row(@icon_gem, @cyan, "Gems:", world.gems),
-      score_row(world.score),
-      keys_row(world.keys),
+      stat_row(@icon_smiley, @white, "Health:", state.health),
+      stat_row(@icon_ammo, @cyan, "Ammo:", state.ammo),
+      stat_row(@icon_torch, @brown, "Torches:", state.torches),
+      stat_row(@icon_gem, @cyan, "Gems:", state.gems),
+      score_row(state.score),
+      keys_row(state.keys),
       blank_row(),
       keybind_row(?T, "Torch"),
       keybind_row(?B, "Be quiet", @cyan),
@@ -95,8 +97,12 @@ defmodule ZztEx.Zzt.Sidebar do
   end
 
   defp cell(char_byte, fg, bg), do: {Cp437.char(char_byte), fg, bg, false}
-  defp blank_cell, do: cell(@space, @white, @blue)
-  defp blank_row, do: List.duplicate(blank_cell(), @width)
+
+  defp blank_row do
+    @space
+    |> cell(@white, @blue)
+    |> List.duplicate(@width)
+  end
 
   # Paint `text` onto `row` starting at 1-indexed `col`. Cells past the
   # sidebar edge are silently dropped (keeps overlong values from crashing).
