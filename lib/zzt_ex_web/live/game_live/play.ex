@@ -73,6 +73,35 @@ defmodule ZztExWeb.GameLive.Play do
     {:noreply, assign(socket, :speed, speed)}
   end
 
+  def handle_event("keydown", %{"key" => key} = params, socket) do
+    # Don't eat keystrokes while the user is typing into the speed
+    # slider (or any future input); Phoenix dispatches keydown globally.
+    cond do
+      typing_in_form?(params) ->
+        {:noreply, socket}
+
+      step = arrow_step(key) ->
+        {dx, dy} = step
+        game = Game.move_player(socket.assigns.game, dx, dy)
+        {:noreply, refresh_rows(socket, game)}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  defp arrow_step("ArrowUp"), do: {0, -1}
+  defp arrow_step("ArrowDown"), do: {0, 1}
+  defp arrow_step("ArrowLeft"), do: {-1, 0}
+  defp arrow_step("ArrowRight"), do: {1, 0}
+  defp arrow_step(_), do: nil
+
+  defp typing_in_form?(%{"target" => target}) when is_binary(target) do
+    target in ~w(input textarea select)
+  end
+
+  defp typing_in_form?(_), do: false
+
   @impl true
   def handle_info(:tick, socket) do
     Process.send_after(self(), :tick, interval_ms(socket.assigns.speed))
@@ -118,7 +147,11 @@ defmodule ZztExWeb.GameLive.Play do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash}>
-      <div class="px-4 py-6 flex flex-col items-center gap-4">
+      <div
+        id="zzt-play"
+        phx-window-keydown="keydown"
+        class="px-4 py-6 flex flex-col items-center gap-4"
+      >
         <div class="w-full max-w-6xl flex flex-wrap items-center justify-between gap-3">
           <div>
             <.link navigate={~p"/"} class="text-xs text-base-content/60 hover:text-base-content">

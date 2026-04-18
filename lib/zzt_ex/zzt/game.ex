@@ -211,6 +211,35 @@ defmodule ZztEx.Zzt.Game do
     end
   end
 
+  @doc """
+  Move the player in response to input. `{dx, dy}` is one cardinal step.
+  Dead players don't move; off-board moves are clamped away. If the
+  target tile is walkable the player slides in; anything else (walls,
+  monsters, pickups, doors) blocks for now — touch procs arrive next.
+  """
+  @spec move_player(t(), integer(), integer()) :: t()
+  def move_player(%__MODULE__{} = game, dx, dy) do
+    player = Enum.at(game.stats, 0)
+    tx = player.x + dx
+    ty = player.y + dy
+
+    cond do
+      game.player.health <= 0 -> game
+      not in_bounds?(tx, ty) -> game
+      walkable?(game, tx, ty) -> move_stat(game, 0, tx, ty)
+      true -> game
+    end
+  end
+
+  defp in_bounds?(x, y), do: x in 1..60 and y in 1..25
+
+  defp walkable?(game, x, y) do
+    case Map.get(game.tiles, {x, y}) do
+      {element, _color} -> Element.walkable?(element)
+      nil -> false
+    end
+  end
+
   # ---- internals --------------------------------------------------------
 
   defp decrement_energizer(%{player: %{energizer_ticks: n} = p} = game) when n > 0 do
