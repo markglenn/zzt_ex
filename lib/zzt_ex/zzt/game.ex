@@ -185,6 +185,112 @@ defmodule ZztEx.Zzt.Game do
   defp shift_ref(ref, removed) when ref == removed, do: -1
   defp shift_ref(ref, _removed), do: ref - 1
 
+  @doc """
+  Move a tile (and its stat, if any) from `{from_x, from_y}` to
+  `{to_x, to_y}`. Mirrors ZZT's `ElementMove`: if a stat lives at the
+  source, delegate to `move_stat/4`; otherwise copy the tile directly
+  and clear the source. Target's prior content is overwritten.
+  """
+  @spec element_move(t(), 1..60, 1..25, 1..60, 1..25) :: t()
+  def element_move(%__MODULE__{} = game, from_x, from_y, to_x, to_y) do
+    case find_stat_at(game.stats, from_x, from_y) do
+      nil ->
+        src_tile = Map.fetch!(game.tiles, {from_x, from_y})
+
+        tiles =
+          game.tiles
+          |> Map.put({to_x, to_y}, src_tile)
+          |> Map.put({from_x, from_y}, {0, 0})
+
+        %{game | tiles: tiles}
+
+      idx ->
+        move_stat(game, idx, to_x, to_y)
+    end
+  end
+
+  @doc """
+  Attempt to push the tile at `{x, y}` one step along `{dx, dy}`. Ports
+  `ElementPushablePush`:
+
+    * Sliders only move along their own axis; everything else uses the
+      static Pushable flag.
+    * If the push destination is occupied, try pushing that tile first
+      (recursively).
+    * If the destination ends up occupied by a destructible non-walkable
+      tile (other than the player), crush it.
+    * If the destination is walkable afterward, the pushed tile slides in.
+  """
+  @spec push_tile(t(), integer(), integer(), integer(), integer()) :: t()
+  def push_tile(%__MODULE__{} = game, x, y, dx, dy) do
+    case Map.get(game.tiles, {x, y}) do
+      nil ->
+        game
+
+      {element, _} ->
+        if Element.pushable?(element, dx, dy) do
+          do_push(game, x, y, dx, dy)
+        else
+          game
+        end
+    end
+  end
+
+  defp do_push(game, x, y, dx, dy) do
+    tx = x + dx
+    ty = y + dy
+
+    if in_bounds?(tx, ty) do
+      {target_elem, _} = Map.fetch!(game.tiles, {tx, ty})
+
+      game =
+        if target_elem != 0 do
+          push_tile(game, tx, ty, dx, dy)
+        else
+          game
+        end
+
+      # Re-read target after recursion.
+      {target_elem, _} = Map.fetch!(game.tiles, {tx, ty})
+
+      game =
+        if not Element.walkable?(target_elem) and
+             Element.destructible?(target_elem) and target_elem != 4 do
+          damage_tile(game, tx, ty)
+        else
+          game
+        end
+
+      {target_elem, _} = Map.fetch!(game.tiles, {tx, ty})
+
+      if Element.walkable?(target_elem) do
+        element_move(game, x, y, tx, ty)
+      else
+        game
+      end
+    else
+      game
+    end
+  end
+
+  @doc """
+  Damage whatever is at `{x, y}`. Mirrors `BoardDamageTile`: if there's
+  a stat there, `DamageStat` semantics (player takes 10, monster dies);
+  otherwise the tile is set to empty.
+  """
+  @spec damage_tile(t(), 1..60, 1..25) :: t()
+  def damage_tile(%__MODULE__{} = game, x, y) do
+    case find_stat_at(game.stats, x, y) do
+      nil -> %{game | tiles: Map.put(game.tiles, {x, y}, {0, 0x0F})}
+      0 -> damage_player(game, 10)
+      idx -> remove_stat(game, idx)
+    end
+  end
+
+  defp find_stat_at(stats, x, y) do
+    Enum.find_index(stats, fn s -> s.x == x and s.y == y end)
+  end
+
   @doc "Apply `amount` damage to the player (clamped to zero)."
   @spec damage_player(t(), non_neg_integer()) :: t()
   def damage_player(%__MODULE__{} = game, amount) do
@@ -350,10 +456,6 @@ defmodule ZztEx.Zzt.Game do
         cur_idx -> maybe_tick_stat(acc, cur_idx, orig_idx)
       end
     end)
-  end
-
-  defp find_stat_at(stats, x, y) do
-    Enum.find_index(stats, fn s -> s.x == x and s.y == y end)
   end
 
   defp maybe_tick_stat(game, cur_idx, orig_idx) do

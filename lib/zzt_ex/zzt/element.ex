@@ -121,6 +121,29 @@ defmodule ZztEx.Zzt.Element do
   @spec score_value(0..255) :: non_neg_integer()
   def score_value(id), do: Map.get(@score_values, id, 0)
 
+  # Tiles that shove in a given direction. Mirrors ElementDefs[X].Pushable,
+  # plus the two sliders which are only pushable along their own axis.
+  @pushable [0, 4, 5, 7, 8, 10, 13, 24, 34, 35, 41, 42]
+
+  @doc """
+  Whether a tile can be shoved in the given cardinal direction.
+  Sliders are axis-locked: Slider NS only moves on vertical pushes,
+  Slider EW only on horizontal. Everything else looks at the static
+  Pushable flag.
+  """
+  @spec pushable?(0..255, integer(), integer()) :: boolean()
+  def pushable?(25, _dx, dy) when dy != 0, do: true
+  def pushable?(26, dx, _dy) when dx != 0, do: true
+  def pushable?(elem, _dx, _dy), do: elem in @pushable
+
+  # Destructible tiles get crushed when something pushes them into a
+  # wall. Matches ElementDefs[X].Destructible.
+  @destructible [4, 7, 18, 34, 35, 41, 42, 44, 45]
+
+  @doc "Whether `element` can be destroyed by a pushed tile."
+  @spec destructible?(0..255) :: boolean()
+  def destructible?(id), do: id in @destructible
+
   @doc """
   Background palette index for a text element (47..53), or `nil` otherwise.
 

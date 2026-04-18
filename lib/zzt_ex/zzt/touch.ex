@@ -30,6 +30,10 @@ defmodule ZztEx.Zzt.Touch do
   @invisible 28
   @slime 37
 
+  @boulder 24
+  @slider_ns 25
+  @slider_ew 26
+
   # Every monster/projectile that hurts the player on contact.
   @damaging [15, 18, 34, 35, 41, 42, 44, 45]
 
@@ -133,6 +137,13 @@ defmodule ZztEx.Zzt.Touch do
 
   # Water splashes but blocks forward motion.
   defp dispatch(@water, _color, game, _x, _y, _src, _dx, _dy), do: {game, 0, 0}
+
+  # Pushable: try to shove the block; if it moves out of the way the
+  # outer walkable check lets the mover slide into the vacated tile.
+  defp dispatch(element, _color, game, x, y, _src, dx, dy)
+       when element in [@boulder, @slider_ns, @slider_ew] do
+    {Game.push_tile(game, x, y, dx, dy), dx, dy}
+  end
 
   # Slime: slime dies and the tile becomes a breakable wall in its color.
   # Player isn't damaged — that's reference behavior (SlimeTouch calls

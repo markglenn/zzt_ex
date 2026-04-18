@@ -291,6 +291,78 @@ defmodule ZztEx.Zzt.GameTest do
       assert {player.x, player.y} == {60, 13}
     end
 
+    test "pushes a boulder out of the way and walks onto the vacated tile" do
+      game = blank_game(player_xy: {10, 10})
+      game = %{game | tiles: Map.put(game.tiles, {11, 10}, {24, 0x0F})}
+
+      final = Game.move_player(game, 1, 0)
+
+      # Boulder pushed from (11, 10) to (12, 10); player now occupies (11, 10).
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {11, 10}
+      assert Map.fetch!(final.tiles, {12, 10}) |> elem(0) == 24
+    end
+
+    test "pushing a chain of boulders shoves the whole column" do
+      game = blank_game(player_xy: {10, 10})
+
+      game = %{
+        game
+        | tiles:
+            Enum.reduce(11..13, game.tiles, fn x, acc -> Map.put(acc, {x, 10}, {24, 0x0F}) end)
+      }
+
+      final = Game.move_player(game, 1, 0)
+
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {11, 10}
+      assert Map.fetch!(final.tiles, {12, 10}) |> elem(0) == 24
+      assert Map.fetch!(final.tiles, {13, 10}) |> elem(0) == 24
+      assert Map.fetch!(final.tiles, {14, 10}) |> elem(0) == 24
+    end
+
+    test "boulder blocked against a wall stays put and blocks the player" do
+      game = blank_game(player_xy: {10, 10}, walls: [{12, 10}])
+      game = %{game | tiles: Map.put(game.tiles, {11, 10}, {24, 0x0F})}
+
+      final = Game.move_player(game, 1, 0)
+
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {10, 10}
+      assert Map.fetch!(final.tiles, {11, 10}) |> elem(0) == 24
+    end
+
+    test "NS slider is only pushable along its axis" do
+      game = blank_game(player_xy: {10, 10})
+      # Slider NS west of the player; pushing east should NOT move it.
+      game = %{game | tiles: Map.put(game.tiles, {11, 10}, {25, 0x0F})}
+
+      east_final = Game.move_player(game, 1, 0)
+      assert Map.fetch!(east_final.tiles, {11, 10}) |> elem(0) == 25
+      assert Enum.at(east_final.stats, 0).x == 10
+
+      # But bumping it south (dy = 1) DOES push.
+      game2 = blank_game(player_xy: {10, 10})
+      game2 = %{game2 | tiles: Map.put(game2.tiles, {10, 11}, {25, 0x0F})}
+      south_final = Game.move_player(game2, 0, 1)
+
+      assert Map.fetch!(south_final.tiles, {10, 12}) |> elem(0) == 25
+      assert Enum.at(south_final.stats, 0).y == 11
+    end
+
+    test "pushing a gem into a wall crushes it" do
+      game = blank_game(player_xy: {10, 10}, walls: [{12, 10}])
+      game = %{game | tiles: Map.put(game.tiles, {11, 10}, {7, 0x0B})}
+
+      final = Game.move_player(game, 1, 0)
+
+      # Gem is destroyed (pushed into wall), leaving empty; player slides in.
+      # Wait — the gem is destructible so push damages it → tile becomes
+      # empty; player moves onto it.
+      assert Map.fetch!(final.tiles, {11, 10}) |> elem(0) == 4
+      assert Enum.at(final.stats, 0) |> then(&{&1.x, &1.y}) == {11, 10}
+    end
+
     test "player inventory carries over into the new board" do
       game =
         two_board_game(:exit_east, 2)
