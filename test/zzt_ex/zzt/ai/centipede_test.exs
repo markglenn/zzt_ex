@@ -139,6 +139,32 @@ defmodule ZztEx.Zzt.AI.CentipedeTest do
     assert new_head_stat.leader == -1
   end
 
+  test "head reconstructs its chain from adjacent segments with unset links" do
+    # Stock ZZT saves centipedes with every leader/follower set to -1.
+    # Build that scenario and verify the first tick drags the whole chain.
+    game = centipede_game(player_xy: {5, 5}, length: 3, head_xy: {20, 10}, step: {-1, 0})
+
+    broken_stats =
+      game.stats
+      |> Enum.with_index()
+      |> Enum.map(fn
+        {stat, 0} -> stat
+        {stat, _} -> %Stat{stat | follower: -1, leader: -1}
+      end)
+
+    game = %{game | stats: broken_stats}
+
+    final = Centipede.tick(game, 1)
+
+    head = Enum.at(final.stats, 1)
+    seg1 = Enum.at(final.stats, 2)
+    seg2 = Enum.at(final.stats, 3)
+
+    assert {head.x, head.y} == {19, 10}
+    assert {seg1.x, seg1.y} == {20, 10}
+    assert {seg2.x, seg2.y} == {21, 10}
+  end
+
   test "head attacking the player dies and promotes the follower to head" do
     # Lone player to the head's west; surround head with walls except
     # for the player-facing direction so the head must step into them.

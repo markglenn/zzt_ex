@@ -37,11 +37,82 @@ defmodule ZztEx.Zzt.AI.Centipede do
 
   @spec tick(Game.t(), non_neg_integer()) :: Game.t()
   def tick(%Game{} = game, head_idx) do
+    # Stock ZZT stores every centipede in save files with follower=-1 and
+    # leader=-1 — the chain is reconstructed on the fly by walking adjacent
+    # segment tiles at tick time. Repair the links first so the rest of
+    # the tick can assume a valid chain.
+    game = ensure_chain(game, head_idx)
+
     head = Enum.at(game.stats, head_idx)
     {sx, sy} = pick_direction(head, Enum.at(game.stats, 0))
 
     game = set_step(game, head_idx, sx, sy)
     try_step(game, head_idx)
+  end
+
+  # Scan outward from `stat_idx`, claiming any adjacent segment whose
+  # leader is still unset. Each newly-linked segment recurses to extend
+  # the chain until we hit a dead end.
+  defp ensure_chain(game, stat_idx) do
+    stat = Enum.at(game.stats, stat_idx)
+
+    if valid_follower?(game, stat_idx, stat.follower) do
+      ensure_chain(game, stat.follower)
+    else
+      case find_unclaimed_segment(game, stat) do
+        nil -> game
+        seg_idx -> game |> link(stat_idx, seg_idx) |> ensure_chain(seg_idx)
+      end
+    end
+  end
+
+  defp valid_follower?(_game, _owner_idx, follower_idx) when follower_idx < 0, do: false
+
+  defp valid_follower?(game, owner_idx, follower_idx) do
+    case Enum.at(game.stats, follower_idx) do
+      nil ->
+        false
+
+      follower ->
+        case Game.tile_at(game, follower.x, follower.y) do
+          {@segment, _} -> follower.leader == owner_idx
+          _ -> false
+        end
+    end
+  end
+
+  # Search N/S/W/E for a segment whose leader is still -1. ZZT uses this
+  # order, and it's stable enough for deterministic chain reconstruction.
+  defp find_unclaimed_segment(game, stat) do
+    [{0, -1}, {0, 1}, {-1, 0}, {1, 0}]
+    |> Enum.find_value(fn {dx, dy} ->
+      nx = stat.x + dx
+      ny = stat.y + dy
+
+      with {@segment, _} <- Game.tile_at(game, nx, ny) || :none,
+           idx when is_integer(idx) <- find_segment_index(game.stats, nx, ny),
+           %Stat{leader: leader} when leader < 0 <- Enum.at(game.stats, idx) do
+        idx
+      else
+        _ -> nil
+      end
+    end)
+  end
+
+  defp find_segment_index(stats, x, y) do
+    Enum.find_index(stats, fn s -> s.x == x and s.y == y end)
+  end
+
+  defp link(game, owner_idx, seg_idx) do
+    owner = Enum.at(game.stats, owner_idx)
+    seg = Enum.at(game.stats, seg_idx)
+
+    stats =
+      game.stats
+      |> List.replace_at(owner_idx, %Stat{owner | follower: seg_idx})
+      |> List.replace_at(seg_idx, %Stat{seg | leader: owner_idx})
+
+    %{game | stats: stats}
   end
 
   defp pick_direction(head, player) do
