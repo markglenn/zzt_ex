@@ -21,6 +21,7 @@ defmodule ZztEx.Zzt.Render do
 
   @empty 0
   @board_edge 1
+  @scroll 10
   @star 15
   @conveyor_cw 16
   @conveyor_ccw 17
@@ -95,10 +96,14 @@ defmodule ZztEx.Zzt.Render do
     end
   end
 
-  # Returns {char_byte, fg}. Most elements keep the stored fg; Star overrides
-  # it because ZZT cycles star color each draw.
+  # Returns {char_byte, fg}. Most elements keep the stored fg; Star and
+  # Scroll override because ZZT cycles their color through palette 9..15
+  # on every tick (ElementStarDraw / ElementScrollTick).
   defp draw(@star, _stat, tick, _grid, _x, _y, _fg),
     do: {elem(@star_chars, rem(tick, 4)), 9 + rem(tick, 7)}
+
+  defp draw(@scroll, _stat, tick, _grid, _x, _y, _fg),
+    do: {Element.default_char(@scroll), 9 + rem(tick, 7)}
 
   defp draw(@conveyor_cw, _stat, tick, _grid, _x, _y, fg),
     do: {elem(@conveyor_cw_chars, rem(tick, 4)), fg}
