@@ -445,6 +445,60 @@ defmodule ZztEx.Zzt.Game do
   end
 
   @doc """
+  Fire a bullet (or star) from `{x, y}` in direction `{dx, dy}`. Ports
+  `BoardShoot`: if the tile immediately in that direction is walkable or
+  water, a new bullet stat is spawned there. If it's a breakable (or a
+  source-appropriate destructible), the tile is damaged in place without
+  spawning a bullet. Otherwise the shot fails and the caller sees `false`.
+
+    * `element` — usually `18` (Bullet); `15` for a Star shot.
+    * `source` — `0` for the player, non-zero for an enemy. The bullet's
+      `p1` carries this through subsequent bullet ticks for friendly-fire
+      rules.
+  """
+  @spec board_shoot(t(), 1..60, 1..25, integer(), integer(), 0..255, 0..255) ::
+          {t(), boolean()}
+  def board_shoot(%__MODULE__{} = game, x, y, dx, dy, source, element \\ 18) do
+    tx = x + dx
+    ty = y + dy
+
+    case Map.get(game.tiles, {tx, ty}) do
+      nil ->
+        {game, false}
+
+      {target_elem, _color} ->
+        cond do
+          Element.walkable?(target_elem) or target_elem == 19 ->
+            template = %Stat{
+              x: 0,
+              y: 0,
+              cycle: 1,
+              step_x: dx,
+              step_y: dy,
+              p1: source,
+              p2: 100
+            }
+
+            game = add_stat(game, tx, ty, element, 0x0F, template)
+            {game, true}
+
+          target_elem == 23 or shootable?(target_elem, source) ->
+            {damage_tile(game, tx, ty), true}
+
+          true ->
+            {game, false}
+        end
+    end
+  end
+
+  # `BoardShoot`'s destructible clause: damage only when the target is
+  # aligned with the source — player bullets leave the player alone,
+  # enemy bullets only hit the player (breakables are handled above).
+  defp shootable?(element, source) do
+    Element.destructible?(element) and element == 4 == (source != 0)
+  end
+
+  @doc """
   Teleport through a passage at `{x, y}`. Ports `BoardPassageTeleport`:
   take the passage's color and its stat's `p3` (target board), switch
   to that board, scan for a passage of the matching color, and move
@@ -549,10 +603,8 @@ defmodule ZztEx.Zzt.Game do
 
     case Element.name(element) do
       :lion -> AI.Lion.tick(game, cur_idx)
-      # Tigers shoot bullets (not yet implemented) then fall back on
-      # Lion's movement — route the movement for now so they actually
-      # hunt instead of standing around.
-      :tiger -> AI.Lion.tick(game, cur_idx)
+      :tiger -> AI.Tiger.tick(game, cur_idx)
+      :bullet -> AI.Bullet.tick(game, cur_idx)
       :bear -> AI.Bear.tick(game, cur_idx)
       :ruffian -> AI.Ruffian.tick(game, cur_idx)
       :slime -> AI.Slime.tick(game, cur_idx)
