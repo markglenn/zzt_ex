@@ -134,9 +134,20 @@ defmodule ZztEx.Zzt.AI.CentipedeTest do
     # Tile at original tail position (22,10) is now a head.
     assert Map.fetch!(final.tiles, {22, 10}) |> elem(0) == @head
 
-    # Links flipped: stat for old tail now has leader = -1.
+    # Follower chain now flows from the new head (old tail) back up the
+    # old body. Reference ZZT doesn't touch the new head's Leader during
+    # reversal, so we don't assert on it — only on Follower, which is
+    # what drives the next tick's chain walk.
     new_head_stat = Enum.find(final.stats, fn s -> s.x == 22 and s.y == 10 end)
-    assert new_head_stat.leader == -1
+    assert new_head_stat.follower > 0
+
+    seg1 = Enum.at(final.stats, new_head_stat.follower)
+    assert {seg1.x, seg1.y} == {21, 10}
+    assert seg1.follower > 0
+
+    old_head = Enum.at(final.stats, seg1.follower)
+    assert {old_head.x, old_head.y} == {20, 10}
+    assert old_head.follower < 0
   end
 
   test "head reconstructs its chain from adjacent segments with unset links" do
@@ -193,5 +204,81 @@ defmodule ZztEx.Zzt.AI.CentipedeTest do
     {elem, _color} = Map.fetch!(final.tiles, {remaining.x, remaining.y})
     assert elem == @head
     assert remaining.leader == -1
+  end
+
+  test "promoted follower inherits the old head's step so the body keeps marching" do
+    # Minimal two-stat centipede: head + one follower. Surround head
+    # except the player-facing side so the attack must fire. The follower
+    # should wake up with the same step the head had.
+    game = centipede_game(player_xy: {19, 10}, length: 2, head_xy: {20, 10}, step: {-1, 0})
+
+    walls = [{20, 9}, {20, 11}]
+
+    game =
+      Enum.reduce(walls, game, fn pos, acc ->
+        %{acc | tiles: Map.put(acc.tiles, pos, {22, 0x0E})}
+      end)
+
+    final =
+      Enum.reduce_while(1..20, game, fn _, acc ->
+        next = Centipede.tick(acc, 1)
+        if next.player.health < 100, do: {:halt, next}, else: {:cont, next}
+      end)
+
+    [_, promoted] = final.stats
+    assert {promoted.step_x, promoted.step_y} == {-1, 0}
+  end
+
+  test "segments inherit p1 and p2 from the head during chain propagation" do
+    game = centipede_game(player_xy: {5, 5}, length: 3, head_xy: {20, 10}, step: {-1, 0}, p1: 7)
+
+    game =
+      put_in(game.stats, List.replace_at(game.stats, 1, %Stat{Enum.at(game.stats, 1) | p2: 4}))
+
+    final = Centipede.tick(game, 1)
+
+    seg1 = Enum.at(final.stats, 2)
+    seg2 = Enum.at(final.stats, 3)
+
+    assert {seg1.p1, seg1.p2} == {7, 4}
+    assert {seg2.p1, seg2.p2} == {7, 4}
+  end
+
+  test "orphaned segment counts leader down then promotes to head" do
+    # Lone segment with leader = -1 — no chain linked to it. First tick
+    # should count it down to -2; second tick should promote the tile
+    # from segment to head.
+    tiles =
+      for y <- 1..Board.height(), x <- 1..Board.width(), into: %{} do
+        {{x, y}, {0, 0x0F}}
+      end
+      |> Map.put({5, 5}, {4, 0x1F})
+      |> Map.put({10, 10}, {@segment, 0x0B})
+
+    game = %Game{
+      tiles: tiles,
+      stats: [
+        %Stat{x: 5, y: 5, cycle: 1},
+        %Stat{x: 10, y: 10, cycle: 1, leader: -1, follower: -1}
+      ],
+      player: %{
+        health: 100,
+        ammo: 0,
+        gems: 0,
+        keys: List.duplicate(false, 7),
+        torches: 0,
+        score: 0,
+        energizer_ticks: 0
+      },
+      stat_tick: 0
+    }
+
+    after_one = Centipede.segment_tick(game, 1)
+    assert Enum.at(after_one.stats, 1).leader == -2
+    # Tile unchanged after the first countdown pass.
+    assert Map.fetch!(after_one.tiles, {10, 10}) |> elem(0) == @segment
+
+    after_two = Centipede.segment_tick(after_one, 1)
+    assert Map.fetch!(after_two.tiles, {10, 10}) |> elem(0) == @head
   end
 end

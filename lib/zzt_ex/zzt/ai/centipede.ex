@@ -1,186 +1,105 @@
 defmodule ZztEx.Zzt.AI.Centipede do
   @moduledoc """
-  Centipede head and segment behavior, ported from ZZT's
-  `ElementCentipedeHeadTick`.
+  Centipede head and segment behavior, ported one-to-one from
+  `ElementCentipedeHeadTick` / `ElementCentipedeSegmentTick` in the
+  reconstruction-of-zzt source release.
 
-  A centipede is a chain of stats linked by `leader`/`follower` fields:
+  Head tick (each stat pass the head is eligible):
 
-      head (leader = -1, follower = seg1)
-        |
-      seg1 (leader = head, follower = seg2)
-        |
-      seg2 (leader = seg1, follower = -1)
+    1. Redirect `step` with priority player-seek (axis-aligned, `p1/10`),
+       random retarget (`p2`-weighted, also when step is `{0, 0}`), or
+       keep the current step.
+    2. Try to move: primary → random perpendicular → opposite
+       perpendicular → reverse of primary. If all four are blocked, set
+       `step = {0, 0}` as the "stuck" signal.
+    3. If stuck, flip the chain in place (head becomes segment, tail
+       becomes head, leader/follower pairs swap at each stat).
+    4. Otherwise if the target tile holds the player, promote the follower
+       to head (inheriting the head's step so the body keeps marching)
+       and apply the standard contact attack.
+    5. Otherwise move the head; then walk the chain, linking unclaimed
+       segments directly behind or to the side of each stat's motion,
+       inheriting p1/p2 and updating the step before the segment slides
+       into its leader's vacated tile.
 
-  Only the head ticks. Each tick the head:
+  Segment tick (orphan countdown):
 
-    1. Picks up its stored `step`, rerolling to a random direction if it
-       was `{0, 0}`.
-    2. If aligned with the player on X or Y, redirects that axis toward
-       the player with probability `p1 / 10`.
-    3. Attempts to move. Blocked? Try rotating 90° (CW or CCW at random),
-       then the opposite rotation, then reverse. If *every* direction is
-       blocked, flip the chain — the tail becomes the new head and all
-       leader/follower links invert.
-    4. If the target tile is the player, attack: promote the follower to
-       head (so the tail survives), then the old head dies.
-    5. Otherwise move into the target and drag the chain along: each
-       segment steps into the position its leader just vacated.
-
-  Segments are passive; they don't tick themselves.
+    * If `leader == -1`, decrement (so next pass `leader = -2`).
+    * If `leader < -1`, the segment has been orphaned long enough: its
+      tile is promoted to a centipede head. From the next head tick it
+      drives its own (possibly one-stat) chain.
   """
 
-  alias ZztEx.Zzt.{Element, Game, Stat}
+  alias ZztEx.Zzt.{Game, Stat}
   alias ZztEx.Zzt.AI.Directions
 
   @head 44
   @segment 45
+  @player 4
+
+  # ---- head --------------------------------------------------------------
 
   @spec tick(Game.t(), non_neg_integer()) :: Game.t()
   def tick(%Game{} = game, head_idx) do
-    # Stock ZZT stores every centipede in save files with follower=-1 and
-    # leader=-1 — the chain is reconstructed on the fly by walking adjacent
-    # segment tiles at tick time. Repair the links first so the rest of
-    # the tick can assume a valid chain.
-    game = ensure_chain(game, head_idx)
+    game = seek_or_retarget(game, head_idx)
+    game = try_directions(game, head_idx)
 
     head = Enum.at(game.stats, head_idx)
-    {sx, sy} = pick_direction(head, Enum.at(game.stats, 0))
 
-    game = set_step(game, head_idx, sx, sy)
-    try_step(game, head_idx)
-  end
+    cond do
+      head.step_x == 0 and head.step_y == 0 ->
+        reverse_chain(game, head_idx)
 
-  # Scan outward from `stat_idx`, claiming any adjacent segment whose
-  # leader is still unset. Each newly-linked segment recurses to extend
-  # the chain until we hit a dead end.
-  defp ensure_chain(game, stat_idx) do
-    stat = Enum.at(game.stats, stat_idx)
+      player_at?(game, head.x + head.step_x, head.y + head.step_y) ->
+        attack_player(game, head_idx)
 
-    if valid_follower?(game, stat_idx, stat.follower) do
-      ensure_chain(game, stat.follower)
-    else
-      case find_unclaimed_segment(game, stat) do
-        nil -> game
-        seg_idx -> game |> link(stat_idx, seg_idx) |> ensure_chain(seg_idx)
-      end
+      true ->
+        move_and_propagate(game, head_idx)
     end
   end
 
-  defp valid_follower?(_game, _owner_idx, follower_idx) when follower_idx < 0, do: false
+  # Pascal: `if X = Player.X and Random(10) < P1 then StepY := Signum(...);
+  # StepX := 0; else if Y = Player.Y ... else if (Random(10)*4 < P2) or step zero
+  # then CalcDirectionRnd(StepX, StepY); end`.
+  defp seek_or_retarget(game, head_idx) do
+    head = Enum.at(game.stats, head_idx)
+    player = Enum.at(game.stats, 0)
 
-  defp valid_follower?(game, owner_idx, follower_idx) do
-    case Enum.at(game.stats, follower_idx) do
-      nil ->
-        false
-
-      follower ->
-        case Game.tile_at(game, follower.x, follower.y) do
-          {@segment, _} -> follower.leader == owner_idx
-          _ -> false
-        end
-    end
-  end
-
-  # Search N/S/W/E for a segment whose leader is still -1. ZZT uses this
-  # order, and it's stable enough for deterministic chain reconstruction.
-  defp find_unclaimed_segment(game, stat) do
-    [{0, -1}, {0, 1}, {-1, 0}, {1, 0}]
-    |> Enum.find_value(fn {dx, dy} ->
-      nx = stat.x + dx
-      ny = stat.y + dy
-
-      with {@segment, _} <- Game.tile_at(game, nx, ny) || :none,
-           idx when is_integer(idx) <- find_segment_index(game.stats, nx, ny),
-           %Stat{leader: leader} when leader < 0 <- Enum.at(game.stats, idx) do
-        idx
-      else
-        _ -> nil
-      end
-    end)
-  end
-
-  defp find_segment_index(stats, x, y) do
-    Enum.find_index(stats, fn s -> s.x == x and s.y == y end)
-  end
-
-  defp link(game, owner_idx, seg_idx) do
-    owner = Enum.at(game.stats, owner_idx)
-    seg = Enum.at(game.stats, seg_idx)
-
-    stats =
-      game.stats
-      |> List.replace_at(owner_idx, %Stat{owner | follower: seg_idx})
-      |> List.replace_at(seg_idx, %Stat{seg | leader: owner_idx})
-
-    %{game | stats: stats}
-  end
-
-  defp pick_direction(head, player) do
     {sx, sy} =
-      if head.step_x == 0 and head.step_y == 0 do
-        Directions.random_step()
-      else
-        {head.step_x, head.step_y}
+      cond do
+        head.x == player.x and :rand.uniform(10) - 1 < head.p1 ->
+          {0, Directions.signum(player.y - head.y)}
+
+        head.y == player.y and :rand.uniform(10) - 1 < head.p1 ->
+          {Directions.signum(player.x - head.x), 0}
+
+        (:rand.uniform(10) - 1) * 4 < head.p2 or (head.step_x == 0 and head.step_y == 0) ->
+          Directions.random_step()
+
+        true ->
+          {head.step_x, head.step_y}
       end
 
-    # Axis-aligned seek, same rules as ZZT: if we share a column with
-    # the player and roll under p1, flip the vertical step toward them.
-    sy =
-      if head.x == player.x and :rand.uniform(10) - 1 < head.p1 do
-        Directions.signum(player.y - head.y)
-      else
-        sy
-      end
-
-    sx =
-      if head.y == player.y and :rand.uniform(10) - 1 < head.p1 do
-        Directions.signum(player.x - head.x)
-      else
-        sx
-      end
-
-    {sx, sy}
+    set_step(game, head_idx, sx, sy)
   end
 
-  # Try the primary step; if blocked, try CW / CCW / 180° in turn. If
-  # every candidate is blocked, the chain reverses in place.
-  defp try_step(game, head_idx) do
+  # Pascal: primary → random perpendicular (`((Random(2)*2)-1)`-signed) →
+  # opposite perpendicular → reverse of primary → else step:={0,0}.
+  defp try_directions(game, head_idx) do
     head = Enum.at(game.stats, head_idx)
     primary = {head.step_x, head.step_y}
-    {first_rot, second_rot} = random_turn_order(primary)
+    {perp1, perp2} = random_perpendiculars(primary)
     reverse = negate(primary)
 
-    case find_open(game, head_idx, [primary, first_rot, second_rot, reverse]) do
-      {sx, sy} ->
-        game
-        |> set_step(head_idx, sx, sy)
-        |> apply_move(head_idx, sx, sy)
+    chosen =
+      Enum.find([primary, perp1, perp2, reverse], fn {dx, dy} ->
+        step_open?(game, head.x + dx, head.y + dy)
+      end)
 
-      nil ->
-        reverse_chain(game, head_idx)
+    case chosen do
+      {sx, sy} -> set_step(game, head_idx, sx, sy)
+      nil -> set_step(game, head_idx, 0, 0)
     end
-  end
-
-  defp apply_move(game, head_idx, sx, sy) do
-    head = Enum.at(game.stats, head_idx)
-    tx = head.x + sx
-    ty = head.y + sy
-
-    if player_at?(game, tx, ty) do
-      attack_player(game, head_idx)
-    else
-      chain_shift(game, head_idx, tx, ty)
-    end
-  end
-
-  # Walk each candidate in order and return the first that resolves to a
-  # walkable tile (or the player, since hitting the player is a legal move).
-  defp find_open(game, head_idx, candidates) do
-    head = Enum.at(game.stats, head_idx)
-
-    Enum.find(candidates, fn {dx, dy} ->
-      step_open?(game, head.x + dx, head.y + dy)
-    end)
   end
 
   defp step_open?(game, x, y) do
@@ -193,88 +112,21 @@ defmodule ZztEx.Zzt.AI.Centipede do
 
       true ->
         case Game.tile_at(game, x, y) do
-          {elem, _} -> Element.walkable?(elem)
+          {elem, _} -> ZztEx.Zzt.Element.walkable?(elem)
           nil -> false
         end
     end
   end
 
-  # Head moves to {tx, ty}; each segment slides into whichever position
-  # its leader just vacated. Moving head-first lets `Game.move_stat`
-  # correctly capture and restore under-tiles all the way down the chain.
-  defp chain_shift(game, head_idx, tx, ty) do
-    chain = collect_chain(game, head_idx)
-
-    old_positions =
-      Enum.map(chain, fn idx ->
-        stat = Enum.at(game.stats, idx)
-        {stat.x, stat.y}
-      end)
-
-    new_positions = [{tx, ty} | Enum.drop(old_positions, -1)]
-
-    chain
-    |> Enum.zip(new_positions)
-    |> Enum.reduce(game, fn {idx, {nx, ny}}, acc -> Game.move_stat(acc, idx, nx, ny) end)
-  end
-
-  defp collect_chain(game, idx, acc \\ []) do
-    stat = Enum.at(game.stats, idx)
-    acc = acc ++ [idx]
-
-    if stat.follower >= 0 and stat.follower != idx do
-      collect_chain(game, stat.follower, acc)
-    else
-      acc
-    end
-  end
-
-  # All directions are blocked. Keep the chain exactly where it is but
-  # swap the head and tail elements and invert every leader/follower
-  # link so the formerly-trailing stat drives movement next tick.
-  defp reverse_chain(game, head_idx) do
-    chain = collect_chain(game, head_idx)
-
-    case chain do
-      [_only_head] ->
-        game
-
-      _ ->
-        reversed = Enum.reverse(chain)
-        old_head = Enum.at(game.stats, head_idx)
-        old_tail = Enum.at(game.stats, List.last(chain))
-
-        {_, old_head_color} = Map.fetch!(game.tiles, {old_head.x, old_head.y})
-        {_, old_tail_color} = Map.fetch!(game.tiles, {old_tail.x, old_tail.y})
-
-        tiles =
-          game.tiles
-          |> Map.put({old_head.x, old_head.y}, {@segment, old_head_color})
-          |> Map.put({old_tail.x, old_tail.y}, {@head, old_tail_color})
-
-        stats =
-          reversed
-          |> Enum.with_index()
-          |> Enum.reduce(game.stats, fn {idx, pos}, acc ->
-            leader = if pos == 0, do: -1, else: Enum.at(reversed, pos - 1)
-            follower = Enum.at(reversed, pos + 1, -1)
-            stat = Enum.at(acc, idx)
-            List.replace_at(acc, idx, %Stat{stat | leader: leader, follower: follower})
-          end)
-
-        %{game | tiles: tiles, stats: stats}
-    end
-  end
-
-  # Head steps onto the player. Promote the follower (if any) to head so
-  # the chain doesn't strand, then apply standard contact damage to the
-  # player and remove the old head.
+  # Head steps onto the player. Promote the follower with the head's step
+  # (Pascal: `Follower.StepX := StepX; Follower.StepY := StepY;`) so the
+  # chain keeps marching, then apply standard contact attack.
   defp attack_player(game, head_idx) do
     head = Enum.at(game.stats, head_idx)
 
     game =
-      if head.follower >= 0 do
-        promote_to_head(game, head.follower)
+      if head.follower > 0 do
+        promote_follower(game, head.follower, head.step_x, head.step_y)
       else
         game
       end
@@ -282,38 +134,212 @@ defmodule ZztEx.Zzt.AI.Centipede do
     Game.collide_with_player(game, head_idx)
   end
 
-  defp promote_to_head(game, follower_idx) do
+  defp promote_follower(game, follower_idx, step_x, step_y) do
     follower = Enum.at(game.stats, follower_idx)
-    {_elem, color} = Map.fetch!(game.tiles, {follower.x, follower.y})
+    {_, color} = Map.fetch!(game.tiles, {follower.x, follower.y})
 
     tiles = Map.put(game.tiles, {follower.x, follower.y}, {@head, color})
-    stats = List.replace_at(game.stats, follower_idx, %Stat{follower | leader: -1})
+
+    stats =
+      List.replace_at(
+        game.stats,
+        follower_idx,
+        %Stat{follower | leader: -1, step_x: step_x, step_y: step_y}
+      )
 
     %{game | tiles: tiles, stats: stats}
   end
 
-  defp set_step(game, head_idx, sx, sy) do
-    stat = Enum.at(game.stats, head_idx)
-    updated = %Stat{stat | step_x: sx, step_y: sy}
-    %{game | stats: List.replace_at(game.stats, head_idx, updated)}
+  # Pascal:
+  #   Board.Tiles[X][Y].Element := E_CENTIPEDE_SEGMENT;
+  #   Leader := -1;
+  #   while Board.Stats[statId].Follower > 0 do begin
+  #     tmp := Board.Stats[statId].Follower;
+  #     Board.Stats[statId].Follower := Board.Stats[statId].Leader;
+  #     Board.Stats[statId].Leader := tmp;
+  #     statId := tmp;
+  #   end;
+  #   Board.Stats[statId].Follower := Board.Stats[statId].Leader;
+  #   Board.Tiles[Stats[statId].X][Stats[statId].Y].Element := E_CENTIPEDE_HEAD;
+  defp reverse_chain(game, head_idx) do
+    head = Enum.at(game.stats, head_idx)
+    {_, head_color} = Map.fetch!(game.tiles, {head.x, head.y})
+
+    game =
+      game
+      |> put_tile({head.x, head.y}, {@segment, head_color})
+      |> update_stat(head_idx, fn s -> %Stat{s | leader: -1} end)
+
+    {game, final_idx} = swap_walk(game, head_idx)
+
+    final = Enum.at(game.stats, final_idx)
+
+    game
+    |> update_stat(final_idx, fn s -> %Stat{s | follower: final.leader} end)
+    |> promote_tile_to_head(final.x, final.y)
   end
 
-  # Screen-space rotation: y grows downward, so CW is (x,y) → (-y, x).
-  defp rotate_cw({x, y}), do: {-y, x}
-  defp rotate_ccw({x, y}), do: {y, -x}
-  defp negate({x, y}), do: {-x, -y}
+  defp swap_walk(game, stat_idx) do
+    stat = Enum.at(game.stats, stat_idx)
 
-  defp random_turn_order(step) do
-    if :rand.uniform(2) == 1 do
-      {rotate_cw(step), rotate_ccw(step)}
+    if stat.follower > 0 do
+      tmp = stat.follower
+      updated = %Stat{stat | follower: stat.leader, leader: tmp}
+      game = %{game | stats: List.replace_at(game.stats, stat_idx, updated)}
+      swap_walk(game, tmp)
     else
-      {rotate_ccw(step), rotate_cw(step)}
+      {game, stat_idx}
     end
   end
 
+  # Pascal:
+  #   MoveStat(statId, X+StepX, Y+StepY);
+  #   repeat
+  #     tx := X-StepX; ty := Y-StepY; ix := StepX; iy := StepY;
+  #     if Follower < 0 then
+  #       try link (tx-ix,ty-iy), (tx-iy,ty-ix), (tx+iy,ty+ix)
+  #     if Follower > 0 then
+  #       Follower.Leader := statId; Follower.P1 := P1; Follower.P2 := P2;
+  #       Follower.StepX := tx - Follower.X; Follower.StepY := ty - Follower.Y;
+  #       MoveStat(Follower, tx, ty);
+  #     statId := Follower;
+  #   until statId = -1;
+  defp move_and_propagate(game, head_idx) do
+    head = Enum.at(game.stats, head_idx)
+    nx = head.x + head.step_x
+    ny = head.y + head.step_y
+
+    game
+    |> Game.move_stat(head_idx, nx, ny)
+    |> propagate(head_idx)
+  end
+
+  defp propagate(game, stat_idx) do
+    stat = Enum.at(game.stats, stat_idx)
+    tx = stat.x - stat.step_x
+    ty = stat.y - stat.step_y
+    ix = stat.step_x
+    iy = stat.step_y
+
+    game =
+      if stat.follower < 0 do
+        link_follower(game, stat_idx, tx, ty, ix, iy)
+      else
+        game
+      end
+
+    stat = Enum.at(game.stats, stat_idx)
+
+    if stat.follower > 0 do
+      follower = Enum.at(game.stats, stat.follower)
+      new_step_x = tx - follower.x
+      new_step_y = ty - follower.y
+
+      game
+      |> update_stat(stat.follower, fn s ->
+        %Stat{
+          s
+          | leader: stat_idx,
+            p1: stat.p1,
+            p2: stat.p2,
+            step_x: new_step_x,
+            step_y: new_step_y
+        }
+      end)
+      |> Game.move_stat(stat.follower, tx, ty)
+      |> propagate(stat.follower)
+    else
+      game
+    end
+  end
+
+  # Scan the three tiles adjacent to (tx, ty) that aren't the forward
+  # direction the mover just came from. Reference order: behind along
+  # motion, then the two perpendicular sides.
+  defp link_follower(game, stat_idx, tx, ty, ix, iy) do
+    candidates = [
+      {tx - ix, ty - iy},
+      {tx - iy, ty - ix},
+      {tx + iy, ty + ix}
+    ]
+
+    case Enum.find_value(candidates, fn {cx, cy} -> unclaimed_segment_at(game, cx, cy) end) do
+      nil -> game
+      seg_idx -> update_stat(game, stat_idx, fn s -> %Stat{s | follower: seg_idx} end)
+    end
+  end
+
+  defp unclaimed_segment_at(game, x, y) do
+    with {@segment, _} <- Game.tile_at(game, x, y) || :none,
+         idx when is_integer(idx) <- find_stat_at(game.stats, x, y),
+         %Stat{leader: leader} when leader < 0 <- Enum.at(game.stats, idx) do
+      idx
+    else
+      _ -> nil
+    end
+  end
+
+  # ---- segment -----------------------------------------------------------
+
+  @doc """
+  Segment tick. Inactive while linked. An orphaned segment (`leader < 0`)
+  counts its leader down each pass; once it drops past `-1`, the tile is
+  promoted to a centipede head.
+  """
+  @spec segment_tick(Game.t(), non_neg_integer()) :: Game.t()
+  def segment_tick(%Game{} = game, stat_idx) do
+    stat = Enum.at(game.stats, stat_idx)
+
+    cond do
+      stat.leader < -1 ->
+        promote_tile_to_head(game, stat.x, stat.y)
+
+      stat.leader < 0 ->
+        update_stat(game, stat_idx, fn s -> %Stat{s | leader: s.leader - 1} end)
+
+      true ->
+        game
+    end
+  end
+
+  # ---- helpers -----------------------------------------------------------
+
+  defp random_perpendiculars(primary) do
+    {dx, dy} = primary
+    # `((Random(2)*2) - 1)` yields +1 or -1; applied to the opposing axis
+    # so the result is a 90° rotation. The opposite perpendicular is just
+    # the negation of the first.
+    first = {sign() * dy, sign() * dx}
+    {first, negate(first)}
+  end
+
+  defp sign, do: :rand.uniform(2) * 2 - 3
+
+  defp negate({x, y}), do: {-x, -y}
+
+  defp set_step(game, stat_idx, sx, sy) do
+    update_stat(game, stat_idx, fn s -> %Stat{s | step_x: sx, step_y: sy} end)
+  end
+
+  defp update_stat(game, stat_idx, fun) do
+    stat = Enum.at(game.stats, stat_idx)
+    %{game | stats: List.replace_at(game.stats, stat_idx, fun.(stat))}
+  end
+
+  defp put_tile(game, pos, tile), do: %{game | tiles: Map.put(game.tiles, pos, tile)}
+
+  defp promote_tile_to_head(game, x, y) do
+    {_, color} = Map.fetch!(game.tiles, {x, y})
+    put_tile(game, {x, y}, {@head, color})
+  end
+
+  defp find_stat_at(stats, x, y) do
+    Enum.find_index(stats, fn s -> s.x == x and s.y == y end)
+  end
+
   defp player_at?(game, x, y) do
-    case game.stats do
-      [%{x: px, y: py} | _] -> x == px and y == py
+    case Game.tile_at(game, x, y) do
+      {@player, _} -> true
       _ -> false
     end
   end

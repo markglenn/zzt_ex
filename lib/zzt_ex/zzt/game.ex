@@ -245,8 +245,7 @@ defmodule ZztEx.Zzt.Game do
       :shark -> AI.Shark.tick(game, cur_idx)
       :pusher -> AI.Pusher.tick(game, cur_idx)
       :head -> AI.Centipede.tick(game, cur_idx)
-      # Segments are carried along by their head — no self-tick.
-      :segment -> game
+      :segment -> AI.Centipede.segment_tick(game, cur_idx)
       _ -> game
     end
   end
