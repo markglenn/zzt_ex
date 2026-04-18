@@ -80,6 +80,13 @@ defmodule ZztExWeb.GameLive.Play do
       typing_in_form?(params) ->
         {:noreply, socket}
 
+      socket.assigns.game.pending_scroll && key in ["Escape", "Enter", " "] ->
+        game = Game.dismiss_scroll(socket.assigns.game)
+        {:noreply, refresh_rows(socket, game)}
+
+      socket.assigns.game.pending_scroll ->
+        {:noreply, socket}
+
       step = arrow_step(key) ->
         {dx, dy} = step
         game = Game.move_player(socket.assigns.game, dx, dy)
@@ -88,6 +95,11 @@ defmodule ZztExWeb.GameLive.Play do
       true ->
         {:noreply, socket}
     end
+  end
+
+  def handle_event("dismiss-scroll", _params, socket) do
+    game = Game.dismiss_scroll(socket.assigns.game)
+    {:noreply, refresh_rows(socket, game)}
   end
 
   defp arrow_step("ArrowUp"), do: {0, -1}
@@ -212,6 +224,8 @@ defmodule ZztExWeb.GameLive.Play do
           <h2 class="text-sm font-semibold mb-1">Board Message</h2>
           <p class="font-mono text-xs whitespace-pre-wrap">{@board.message}</p>
         </div>
+
+        <.scroll_modal :if={@game.pending_scroll} scroll={@game.pending_scroll} />
       </div>
     </Layouts.app>
     """
@@ -228,6 +242,46 @@ defmodule ZztExWeb.GameLive.Play do
     </div>
     """
   end
+
+  attr :scroll, :map, required: true
+
+  defp scroll_modal(assigns) do
+    ~H"""
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      phx-click="dismiss-scroll"
+    >
+      <div
+        class="zzt-scroll"
+        phx-click-away="dismiss-scroll"
+        role="dialog"
+        aria-label="Scroll"
+      >
+        <div class="zzt-scroll-head">
+          <span>{@scroll.title}</span>
+          <button type="button" phx-click="dismiss-scroll" aria-label="Close" class="zzt-scroll-close">
+            ✕
+          </button>
+        </div>
+        <div class="zzt-scroll-body">
+          <p :for={line <- @scroll.lines} class="zzt-scroll-line">{render_line(line)}</p>
+        </div>
+        <div class="zzt-scroll-foot">
+          Press ESC, Enter, or Space to close
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # `$`-prefixed lines are centered/highlighted in ZZT. Render as a
+  # simple emphasized line; empty lines need a non-breaking space so
+  # the browser keeps the paragraph height.
+  defp render_line("$" <> rest),
+    do: {:safe, ["<strong>", Phoenix.HTML.html_escape(String.trim(rest)) |> elem(1), "</strong>"]}
+
+  defp render_line(""), do: {:safe, "&nbsp;"}
+  defp render_line(line), do: line
 
   attr :rows, :list, required: true
   attr :class, :string, default: ""

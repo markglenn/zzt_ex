@@ -10,7 +10,7 @@ defmodule ZztEx.Zzt.Touch do
   delta of `{0, 0}` blocks the mover from advancing onto the tile.
   """
 
-  alias ZztEx.Zzt.{Element, Game, Stat}
+  alias ZztEx.Zzt.{Element, Game, Scroll, Stat}
 
   @type delta :: integer()
   @type result :: {Game.t(), delta(), delta()}
@@ -30,6 +30,7 @@ defmodule ZztEx.Zzt.Touch do
   @invisible 28
   @slime 37
 
+  @scroll 10
   @passage 11
   @boulder 24
   @slider_ns 25
@@ -151,6 +152,24 @@ defmodule ZztEx.Zzt.Touch do
   # doesn't also try to slide the player onto the old passage tile.
   defp dispatch(@passage, _color, game, x, y, _src, _dx, _dy) do
     {Game.passage_teleport(game, x, y), 0, 0}
+  end
+
+  # Scroll: read the stat's ZZT-OOP code body into a displayable
+  # message, park it on the game as `pending_scroll`, and remove the
+  # scroll stat (scrolls are one-shot). The outer move walks the player
+  # onto the vacated tile since removing the stat restores its under.
+  defp dispatch(@scroll, _color, game, x, y, _src, dx, dy) do
+    case find_stat_at(game.stats, x, y) do
+      nil ->
+        {game, dx, dy}
+
+      idx ->
+        stat = Enum.at(game.stats, idx)
+        message = Scroll.parse(stat.code)
+
+        game = %{game | pending_scroll: message}
+        {Game.remove_stat(game, idx), dx, dy}
+    end
   end
 
   # Slime: slime dies and the tile becomes a breakable wall in its color.

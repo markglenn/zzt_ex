@@ -473,4 +473,45 @@ defmodule ZztEx.Zzt.GameTest do
       assert final.player.torches == 3
     end
   end
+
+  describe "scroll touch" do
+    test "walking into a scroll parks its text on pending_scroll and removes the stat" do
+      game = blank_game(player_xy: {10, 10})
+
+      code = "@Sign\rHello from a scroll."
+
+      game = %{
+        game
+        | tiles: Map.put(game.tiles, {11, 10}, {10, 0x0F}),
+          stats:
+            game.stats ++
+              [%Stat{x: 11, y: 10, cycle: 0, code: code}]
+      }
+
+      final = Game.move_player(game, 1, 0)
+
+      assert final.pending_scroll == %{title: "Sign", lines: ["Hello from a scroll."]}
+
+      # Scroll stat removed, player walked onto the vacated tile.
+      assert length(final.stats) == 1
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {11, 10}
+    end
+
+    test "advance/1 no-ops while a scroll is pending" do
+      game =
+        blank_game(player_xy: {10, 10})
+        |> Map.put(:pending_scroll, %{title: "T", lines: ["x"]})
+
+      assert Game.advance(game) == game
+    end
+
+    test "dismiss_scroll clears the modal" do
+      game =
+        blank_game(player_xy: {10, 10})
+        |> Map.put(:pending_scroll, %{title: "T", lines: ["x"]})
+
+      assert Game.dismiss_scroll(game).pending_scroll == nil
+    end
+  end
 end

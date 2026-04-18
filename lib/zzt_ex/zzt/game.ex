@@ -27,7 +27,8 @@ defmodule ZztEx.Zzt.Game do
             tiles: %{},
             stats: [],
             player: %{},
-            stat_tick: 0
+            stat_tick: 0,
+            pending_scroll: nil
 
   @type player_state :: %{
           health: integer(),
@@ -39,6 +40,8 @@ defmodule ZztEx.Zzt.Game do
           energizer_ticks: non_neg_integer()
         }
 
+  @type scroll :: %{title: String.t(), lines: [String.t()]}
+
   @type t :: %__MODULE__{
           world: World.t(),
           board_index: non_neg_integer(),
@@ -46,7 +49,8 @@ defmodule ZztEx.Zzt.Game do
           tiles: %{{1..60, 1..25} => {0..255, 0..255}},
           stats: [Stat.t()],
           player: player_state(),
-          stat_tick: non_neg_integer()
+          stat_tick: non_neg_integer(),
+          pending_scroll: scroll() | nil
         }
 
   @doc """
@@ -78,14 +82,21 @@ defmodule ZztEx.Zzt.Game do
 
   @doc """
   Advance one stat pass: increment `stat_tick`, decrement the energizer
-  timer, then tick every eligible stat.
+  timer, then tick every eligible stat. A pending scroll modal pauses
+  the world until `dismiss_scroll/1` clears it.
   """
   @spec advance(t()) :: t()
+  def advance(%__MODULE__{pending_scroll: scroll} = game) when not is_nil(scroll), do: game
+
   def advance(%__MODULE__{} = game) do
     %{game | stat_tick: game.stat_tick + 1}
     |> decrement_energizer()
     |> tick_stats()
   end
+
+  @doc "Clear any pending scroll — lets the world tick again."
+  @spec dismiss_scroll(t()) :: t()
+  def dismiss_scroll(%__MODULE__{} = game), do: %{game | pending_scroll: nil}
 
   @doc """
   Re-materialize a `%Board{}` from the current game state so the renderer
