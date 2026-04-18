@@ -29,32 +29,32 @@ defmodule ZztEx.Zzt.AI.Pusher do
     start_y = pusher.y
     sx = pusher.step_x
     sy = pusher.step_y
+    target_x = start_x + sx
+    target_y = start_y + sy
 
-    cond do
-      sx == 0 and sy == 0 ->
+    # Pass 1: if the target tile isn't walkable, try to shove it forward.
+    game =
+      if walkable?(game, target_x, target_y) do
+        game
+      else
+        Game.push_tile(game, target_x, target_y, sx, sy)
+      end
+
+    # Pass 2: re-acquire the pusher by position (push may have shifted
+    # stat indices), then move iff the target is walkable now.
+    case find_stat_at(game.stats, start_x, start_y) do
+      nil ->
         game
 
-      true ->
-        game = maybe_push(game, pusher.x + sx, pusher.y + sy, sx, sy)
-
-        case find_stat_at(game.stats, start_x, start_y) do
-          nil ->
-            game
-
-          cur_idx ->
-            if walkable?(game, start_x + sx, start_y + sy) do
-              game
-              |> Game.move_stat(cur_idx, start_x + sx, start_y + sy)
-              |> chain_behind(start_x, start_y, sx, sy)
-            else
-              game
-            end
+      cur_idx ->
+        if walkable?(game, target_x, target_y) do
+          game
+          |> Game.move_stat(cur_idx, target_x, target_y)
+          |> chain_behind(start_x, start_y, sx, sy)
+        else
+          game
         end
     end
-  end
-
-  defp maybe_push(game, x, y, sx, sy) do
-    if walkable?(game, x, y), do: game, else: Game.push_tile(game, x, y, sx, sy)
   end
 
   # Domino: if another pusher with the same step sits one tile behind the
