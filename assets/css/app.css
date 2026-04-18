@@ -100,6 +100,163 @@
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 /* Make LiveView wrapper divs transparent for layout */
-[data-phx-session], [data-phx-teleported-src] { display: contents }
+[data-phx-session],
+[data-phx-teleported-src] {
+  display: contents;
+}
 
 /* This file is for your main application CSS */
+
+/* ----------------------------------------------------------------------------
+   ZZT board rendering
+   The 16-color IBM EGA/VGA text-mode palette, rendered as a grid of <span>s.
+   Each span uses fg{n}/bg{n} utility classes so LiveView diffs stay minimal.
+   ---------------------------------------------------------------------------- */
+
+/* VileR's "Oldschool PC Font Resource" — pixel-exact IBM VGA 8x16 ROM font,
+   the glyph ZZT players saw in 80x25 text mode. CC BY-SA 4.0. */
+@font-face {
+  font-family: "Web437 IBM VGA 8x16";
+  src: url("/fonts/Web437_IBM_VGA_8x16.woff") format("woff");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  --zzt-c0: #000000;
+  --zzt-c1: #0000aa;
+  --zzt-c2: #00aa00;
+  --zzt-c3: #00aaaa;
+  --zzt-c4: #aa0000;
+  --zzt-c5: #aa00aa;
+  --zzt-c6: #aa5500;
+  --zzt-c7: #aaaaaa;
+  --zzt-c8: #555555;
+  --zzt-c9: #5555ff;
+  --zzt-c10: #55ff55;
+  --zzt-c11: #55ffff;
+  --zzt-c12: #ff5555;
+  --zzt-c13: #ff55ff;
+  --zzt-c14: #ffff55;
+  --zzt-c15: #ffffff;
+}
+
+.zzt-board {
+  display: inline-block;
+  padding: 0.5rem;
+  background: var(--zzt-c0);
+  border: 1px solid var(--zzt-c8);
+  border-radius: 0.375rem;
+}
+
+.zzt-grid {
+  /* Cell is 8x16 at 1x. Scale via --zzt-scale (default 2x => 16x32). */
+  --zzt-scale: 1;
+  font-family:
+    "Web437 IBM VGA 8x16", "Menlo", "Consolas", ui-monospace, monospace;
+  font-size: calc(16px * var(--zzt-scale));
+  line-height: 1;
+  letter-spacing: 0;
+  margin: 0;
+  padding: 0;
+  white-space: pre;
+  color: var(--zzt-c7);
+  background: var(--zzt-c0);
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
+  font-smooth: never;
+  image-rendering: pixelated;
+}
+
+.zzt-row {
+  display: block;
+  height: calc(16px * var(--zzt-scale));
+}
+
+.zzt-c {
+  display: inline-block;
+  width: calc(8px * var(--zzt-scale));
+  height: calc(16px * var(--zzt-scale));
+  text-align: left;
+  vertical-align: top;
+  font-variant-ligatures: none;
+}
+
+.zzt-c.fg0 {
+  color: var(--zzt-c0);
+}
+.zzt-c.fg1 {
+  color: var(--zzt-c1);
+}
+.zzt-c.fg2 {
+  color: var(--zzt-c2);
+}
+.zzt-c.fg3 {
+  color: var(--zzt-c3);
+}
+.zzt-c.fg4 {
+  color: var(--zzt-c4);
+}
+.zzt-c.fg5 {
+  color: var(--zzt-c5);
+}
+.zzt-c.fg6 {
+  color: var(--zzt-c6);
+}
+.zzt-c.fg7 {
+  color: var(--zzt-c7);
+}
+.zzt-c.fg8 {
+  color: var(--zzt-c8);
+}
+.zzt-c.fg9 {
+  color: var(--zzt-c9);
+}
+.zzt-c.fg10 {
+  color: var(--zzt-c10);
+}
+.zzt-c.fg11 {
+  color: var(--zzt-c11);
+}
+.zzt-c.fg12 {
+  color: var(--zzt-c12);
+}
+.zzt-c.fg13 {
+  color: var(--zzt-c13);
+}
+.zzt-c.fg14 {
+  color: var(--zzt-c14);
+}
+.zzt-c.fg15 {
+  color: var(--zzt-c15);
+}
+
+.zzt-c.bg0 {
+  background: var(--zzt-c0);
+}
+.zzt-c.bg1 {
+  background: var(--zzt-c1);
+}
+.zzt-c.bg2 {
+  background: var(--zzt-c2);
+}
+.zzt-c.bg3 {
+  background: var(--zzt-c3);
+}
+.zzt-c.bg4 {
+  background: var(--zzt-c4);
+}
+.zzt-c.bg5 {
+  background: var(--zzt-c5);
+}
+.zzt-c.bg6 {
+  background: var(--zzt-c6);
+}
+.zzt-c.bg7 {
+  background: var(--zzt-c7);
+}

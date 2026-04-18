@@ -35,3 +35,7 @@ zzt_ex-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Installed ZZT worlds are user/third-party content — each developer drops
+# their own into priv/games/; the directory is kept via .gitkeep.
+/priv/games/*.zzt
+

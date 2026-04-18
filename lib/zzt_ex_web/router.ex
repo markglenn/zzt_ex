@@ -17,7 +17,8 @@ defmodule ZztExWeb.Router do
   scope "/", ZztExWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", GameLive.Index, :index
+    live "/play/:slug", GameLive.Play, :show
   end
 
   # Other scopes may use custom stacks.
