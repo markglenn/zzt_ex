@@ -263,68 +263,24 @@
   background: var(--zzt-c7);
 }
 
-/* Scroll / message modal — styled after ZZT's in-game scroll window:
-   white-on-blue panel, dashed yellow border, monospace text. */
-.zzt-scroll {
-  font-family:
-    "Web437 IBM VGA 8x16", "Menlo", "Consolas", ui-monospace, monospace;
-  background: var(--zzt-c1);
-  color: var(--zzt-c15);
-  border: 2px solid var(--zzt-c14);
-  min-width: 32rem;
-  max-width: 40rem;
-  max-height: 80vh;
+/* Scroll / message window — rendered as a 50x18 CP437 cell grid by
+   ZztEx.Zzt.ScrollRender, matching the reference's TextWindow output.
+   The wrapper floats over the board as a modal. */
+.zzt-scroll-window {
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
-
-.zzt-scroll-head {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0.5rem 1rem;
-  background: var(--zzt-c7);
-  color: var(--zzt-c0);
-  border-bottom: 1px solid var(--zzt-c14);
-  font-weight: bold;
+  gap: 0.5rem;
 }
 
-.zzt-scroll-close {
-  background: transparent;
-  color: var(--zzt-c0);
-  border: none;
-  cursor: pointer;
-  padding: 0.1rem 0.4rem;
-}
-.zzt-scroll-close:hover {
-  background: var(--zzt-c12);
-  color: var(--zzt-c15);
-}
-
-.zzt-scroll-body {
-  padding: 1rem 1.5rem;
-  overflow-y: auto;
-  line-height: 1.25;
-}
-
-.zzt-scroll-line {
+.zzt-scroll-hint {
+  font-family:
+    "Web437 IBM VGA 8x16", "Menlo", "Consolas", ui-monospace, monospace;
+  color: var(--zzt-c14);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 0.15rem 0.75rem;
   margin: 0;
-  white-space: pre-wrap;
-}
-
-.zzt-scroll-line strong {
-  color: var(--zzt-c14);
-  display: block;
-  text-align: center;
-}
-
-.zzt-scroll-foot {
-  padding: 0.5rem 1rem;
-  border-top: 1px solid var(--zzt-c14);
-  text-align: center;
-  color: var(--zzt-c14);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 /* High bit of a ZZT color byte means the foreground blinks. EGA/VGA text

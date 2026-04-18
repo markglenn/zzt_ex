@@ -7,7 +7,7 @@ defmodule ZztExWeb.GameLive.Play do
   use ZztExWeb, :live_view
 
   alias ZztEx.Games
-  alias ZztEx.Zzt.{Board, Game, Render, Sidebar}
+  alias ZztEx.Zzt.{Board, Game, Render, ScrollRender, Sidebar}
 
   # ZZT's GameSpeeds table: the number of 18.2 Hz BIOS ticks waited between
   # stat passes, per in-game speed setting 1..9. Speed 4 is the default,
@@ -225,7 +225,7 @@ defmodule ZztExWeb.GameLive.Play do
           <p class="font-mono text-xs whitespace-pre-wrap">{@board.message}</p>
         </div>
 
-        <.scroll_modal :if={@game.pending_scroll} scroll={@game.pending_scroll} />
+        <.scroll_window :if={@game.pending_scroll} scroll={@game.pending_scroll} />
       </div>
     </Layouts.app>
     """
@@ -245,43 +245,23 @@ defmodule ZztExWeb.GameLive.Play do
 
   attr :scroll, :map, required: true
 
-  defp scroll_modal(assigns) do
+  defp scroll_window(assigns) do
+    assigns = assign(assigns, :rows, ScrollRender.render(assigns.scroll))
+
     ~H"""
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       phx-click="dismiss-scroll"
+      role="dialog"
+      aria-label={"Scroll: " <> @scroll.title}
     >
-      <div
-        class="zzt-scroll"
-        phx-click-away="dismiss-scroll"
-        role="dialog"
-        aria-label="Scroll"
-      >
-        <div class="zzt-scroll-head">
-          <span>{@scroll.title}</span>
-          <button type="button" phx-click="dismiss-scroll" aria-label="Close" class="zzt-scroll-close">
-            ✕
-          </button>
-        </div>
-        <div class="zzt-scroll-body">
-          <p :for={line <- @scroll.lines} class="zzt-scroll-line">{render_line(line)}</p>
-        </div>
-        <div class="zzt-scroll-foot">
-          Press ESC, Enter, or Space to close
-        </div>
+      <div class="zzt-scroll-window" phx-click-away="dismiss-scroll">
+        <.grid rows={@rows} />
+        <p class="zzt-scroll-hint">Press ESC, Enter, or Space to close</p>
       </div>
     </div>
     """
   end
-
-  # `$`-prefixed lines are centered/highlighted in ZZT. Render as a
-  # simple emphasized line; empty lines need a non-breaking space so
-  # the browser keeps the paragraph height.
-  defp render_line("$" <> rest),
-    do: {:safe, ["<strong>", Phoenix.HTML.html_escape(String.trim(rest)) |> elem(1), "</strong>"]}
-
-  defp render_line(""), do: {:safe, "&nbsp;"}
-  defp render_line(line), do: line
 
   attr :rows, :list, required: true
   attr :class, :string, default: ""
