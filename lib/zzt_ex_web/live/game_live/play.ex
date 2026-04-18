@@ -80,12 +80,8 @@ defmodule ZztExWeb.GameLive.Play do
       typing_in_form?(params) ->
         {:noreply, socket}
 
-      socket.assigns.game.pending_scroll && key in ["Escape", "Enter", " "] ->
-        game = Game.dismiss_scroll(socket.assigns.game)
-        {:noreply, refresh_rows(socket, game)}
-
       socket.assigns.game.pending_scroll ->
-        {:noreply, socket}
+        handle_scroll_key(key, socket)
 
       step = arrow_step(key) ->
         {dx, dy} = step
@@ -100,6 +96,28 @@ defmodule ZztExWeb.GameLive.Play do
   def handle_event("dismiss-scroll", _params, socket) do
     game = Game.dismiss_scroll(socket.assigns.game)
     {:noreply, refresh_rows(socket, game)}
+  end
+
+  defp handle_scroll_key(key, socket) do
+    case key do
+      k when k in ["Escape", "Enter", " "] ->
+        {:noreply, refresh_rows(socket, Game.dismiss_scroll(socket.assigns.game))}
+
+      "ArrowUp" ->
+        {:noreply, refresh_rows(socket, Game.scroll_cursor(socket.assigns.game, -1))}
+
+      "ArrowDown" ->
+        {:noreply, refresh_rows(socket, Game.scroll_cursor(socket.assigns.game, 1))}
+
+      "PageUp" ->
+        {:noreply, refresh_rows(socket, Game.scroll_cursor(socket.assigns.game, -14))}
+
+      "PageDown" ->
+        {:noreply, refresh_rows(socket, Game.scroll_cursor(socket.assigns.game, 14))}
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   defp arrow_step("ArrowUp"), do: {0, -1}
@@ -246,7 +264,12 @@ defmodule ZztExWeb.GameLive.Play do
   attr :scroll, :map, required: true
 
   defp scroll_window(assigns) do
-    assigns = assign(assigns, :rows, ScrollRender.render(assigns.scroll))
+    assigns =
+      assign(
+        assigns,
+        :rows,
+        ScrollRender.render(assigns.scroll, line_pos: assigns.scroll.line_pos)
+      )
 
     ~H"""
     <div
@@ -257,7 +280,7 @@ defmodule ZztExWeb.GameLive.Play do
     >
       <div class="zzt-scroll-window" phx-click-away="dismiss-scroll">
         <.grid rows={@rows} />
-        <p class="zzt-scroll-hint">Press ESC, Enter, or Space to close</p>
+        <p class="zzt-scroll-hint">↑/↓ to scroll · ESC/Enter/Space to close</p>
       </div>
     </div>
     """

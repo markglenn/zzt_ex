@@ -23,8 +23,14 @@ defmodule ZztEx.Zzt.ScrollRender do
 
   @width 50
   @inner_width 45
-  @content_rows 14
   @height 18
+  # Reference: lineY := (Y + lpos) - LinePos + (Height div 2) + 1.
+  # Translating to our 0-indexed window rows: the selected line always
+  # sits at `height div 2 + 1` from the top (row 10 for height 18), and
+  # every other line stacks relative to it.
+  @middle_row div(@height, 2) + 1
+  @first_content_row 3
+  @last_content_row @height - 2
 
   # Palette indices from the reference's VideoWriteText color bytes:
   # $0F = bg 0, fg 15 (white on black).
@@ -148,18 +154,25 @@ defmodule ZztEx.Zzt.ScrollRender do
     end
   end
 
+  # For each content row, figure out which line (if any) lands there,
+  # then draw the line (with selection arrows iff it's the middle row)
+  # or a blank content row when the position is out of range.
+  #
+  # `Enum.at/2` accepts negative indices and wraps to the list tail — we
+  # must guard explicitly so rows above the top of the content show as
+  # blank instead of wrapping the end of the scroll back to the top.
   defp build_content(lines, line_pos) do
-    slice = Enum.take(lines, @content_rows)
-    padding = @content_rows - length(slice)
+    count = length(lines)
 
-    lines_with_idx = Enum.with_index(slice, 1)
+    for window_row <- @first_content_row..@last_content_row do
+      lpos = window_row + line_pos - @middle_row
 
-    row_cells =
-      for {line, idx} <- lines_with_idx do
-        content_row(line, idx == line_pos)
+      if lpos >= 1 and lpos <= count do
+        content_row(Enum.at(lines, lpos - 1), window_row == @middle_row)
+      else
+        blank_content_row()
       end
-
-    row_cells ++ List.duplicate(blank_content_row(), padding)
+    end
   end
 
   # --- line formatting -----------------------------------------------------

@@ -165,7 +165,7 @@ defmodule ZztEx.Zzt.Touch do
 
       idx ->
         stat = Enum.at(game.stats, idx)
-        message = Scroll.parse(stat.code)
+        message = Scroll.parse(stat.code) |> Map.put(:line_pos, 1)
 
         game = %{game | pending_scroll: message}
         {Game.remove_stat(game, idx), dx, dy}

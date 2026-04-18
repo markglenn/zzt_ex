@@ -490,7 +490,11 @@ defmodule ZztEx.Zzt.GameTest do
 
       final = Game.move_player(game, 1, 0)
 
-      assert final.pending_scroll == %{title: "Sign", lines: ["Hello from a scroll."]}
+      assert final.pending_scroll == %{
+               title: "Sign",
+               lines: ["Hello from a scroll."],
+               line_pos: 1
+             }
 
       # Scroll stat removed, player walked onto the vacated tile.
       assert length(final.stats) == 1
@@ -509,9 +513,28 @@ defmodule ZztEx.Zzt.GameTest do
     test "dismiss_scroll clears the modal" do
       game =
         blank_game(player_xy: {10, 10})
-        |> Map.put(:pending_scroll, %{title: "T", lines: ["x"]})
+        |> Map.put(:pending_scroll, %{title: "T", lines: ["x"], line_pos: 1})
 
       assert Game.dismiss_scroll(game).pending_scroll == nil
+    end
+
+    test "scroll_cursor moves line_pos and clamps to the line count" do
+      lines = ~w(one two three)
+      game =
+        blank_game(player_xy: {10, 10})
+        |> Map.put(:pending_scroll, %{title: "T", lines: lines, line_pos: 1})
+
+      # Down: 1 -> 2 -> 3 -> clamp at 3.
+      game = Game.scroll_cursor(game, 1)
+      assert game.pending_scroll.line_pos == 2
+      game = Game.scroll_cursor(game, 1)
+      assert game.pending_scroll.line_pos == 3
+      game = Game.scroll_cursor(game, 1)
+      assert game.pending_scroll.line_pos == 3
+
+      # Up: 3 -> 2 -> 1 -> clamp at 1.
+      game = Game.scroll_cursor(game, -10)
+      assert game.pending_scroll.line_pos == 1
     end
   end
 end

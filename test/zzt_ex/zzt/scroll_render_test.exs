@@ -37,41 +37,53 @@ defmodule ZztEx.Zzt.ScrollRenderTest do
     assert String.contains?(title, "Hi")
   end
 
-  test "content rows show each line indented two cells past the vertical bar" do
-    # line_pos: 0 keeps arrows off so we can see the raw indent.
-    rows = ScrollRender.render(%{title: "T", lines: ["Hello world"]}, line_pos: 0)
-    text = row_text(Enum.at(rows, 3))
+  test "a single line lands on the middle row (not the first content row)" do
+    # The selected line always sits at (Height div 2 + 1) = row 10.
+    rows = ScrollRender.render(%{title: "T", lines: ["Hello world"]})
+    middle = row_text(Enum.at(rows, 10))
 
-    assert String.contains?(text, Cp437.char(0xB3) <> "  Hello world")
+    assert String.contains?(middle, "Hello world")
+
+    # Row 3 (the first content row) is empty when there's only one line.
+    assert row_text(Enum.at(rows, 3)) |> String.trim() =~ ~r/^\p{Zs}*[│]?[»]?.*[«]?[│]?\p{Zs}*$/u
+    refute row_text(Enum.at(rows, 3)) |> String.contains?("Hello world")
   end
 
   test "$-centered lines drop the sigil and center the rest in the accent color" do
+    # `line_pos: 0` suppresses the middle-row arrows so we can see only
+    # the line's own glyphs.
     rows = ScrollRender.render(%{title: "T", lines: ["$  Centered text"]}, line_pos: 0)
-    centered_row = Enum.at(rows, 3)
 
-    # Grab only the text glyphs on blue bg (exclude border vert-bar on black).
+    # Line 1 at line_pos: 0 lands one row below middle.
+    centered_row = Enum.at(rows, 11)
+
     text_cells =
       centered_row
       |> Enum.filter(fn {char, _fg, bg, _blink} -> char != " " and bg == 1 end)
 
     assert Enum.all?(text_cells, fn {_char, fg, _bg, _blink} -> fg == 15 end)
-
-    assert centered_row |> row_text() |> String.contains?("Centered text")
+    assert row_text(centered_row) =~ "Centered text"
   end
 
-  test "selection arrows appear on the line_pos-th content row" do
+  test "selection arrows always ride the middle row; other lines stack around it" do
     rows =
       ScrollRender.render(%{title: "T", lines: ["one", "two", "three"]}, line_pos: 2)
 
     arrow_r = Cp437.char(0xAF)
     arrow_l = Cp437.char(0xAE)
 
-    # Row 3 = line 1 (no arrows), row 4 = line 2 (arrows), row 5 = line 3.
-    second_line = row_text(Enum.at(rows, 4))
-    assert String.contains?(second_line, arrow_r)
-    assert String.contains?(second_line, arrow_l)
+    # Middle row (10) holds the selected line "two" with arrows.
+    middle = row_text(Enum.at(rows, 10))
+    assert String.contains?(middle, "two")
+    assert String.contains?(middle, arrow_r)
+    assert String.contains?(middle, arrow_l)
 
-    first_line = row_text(Enum.at(rows, 3))
-    refute String.contains?(first_line, arrow_r)
+    # Line 1 sits one row above, line 3 one row below. Neither has arrows.
+    above = row_text(Enum.at(rows, 9))
+    below = row_text(Enum.at(rows, 11))
+    assert String.contains?(above, "one")
+    assert String.contains?(below, "three")
+    refute String.contains?(above, arrow_r)
+    refute String.contains?(below, arrow_r)
   end
 end

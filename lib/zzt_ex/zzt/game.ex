@@ -40,7 +40,7 @@ defmodule ZztEx.Zzt.Game do
           energizer_ticks: non_neg_integer()
         }
 
-  @type scroll :: %{title: String.t(), lines: [String.t()]}
+  @type scroll :: %{title: String.t(), lines: [String.t()], line_pos: pos_integer()}
 
   @type t :: %__MODULE__{
           world: World.t(),
@@ -97,6 +97,20 @@ defmodule ZztEx.Zzt.Game do
   @doc "Clear any pending scroll — lets the world tick again."
   @spec dismiss_scroll(t()) :: t()
   def dismiss_scroll(%__MODULE__{} = game), do: %{game | pending_scroll: nil}
+
+  @doc """
+  Move the scroll's cursor up (`-1`) or down (`+1`), clamping to the
+  scroll's line count so the player can't scroll past either end.
+  """
+  @spec scroll_cursor(t(), integer()) :: t()
+  def scroll_cursor(%__MODULE__{pending_scroll: nil} = game, _delta), do: game
+
+  def scroll_cursor(%__MODULE__{pending_scroll: scroll} = game, delta) do
+    count = length(scroll.lines)
+    new_pos = scroll.line_pos + delta
+    new_pos = new_pos |> max(1) |> min(max(count, 1))
+    %{game | pending_scroll: %{scroll | line_pos: new_pos}}
+  end
 
   @doc """
   Re-materialize a `%Board{}` from the current game state so the renderer
