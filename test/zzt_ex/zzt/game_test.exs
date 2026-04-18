@@ -1,7 +1,7 @@
 defmodule ZztEx.Zzt.GameTest do
   use ExUnit.Case, async: true
 
-  alias ZztEx.Zzt.{Board, Game, Stat}
+  alias ZztEx.Zzt.{Board, Game, Stat, World}
 
   defp base_player_state(overrides) do
     Map.merge(
@@ -216,6 +216,91 @@ defmodule ZztEx.Zzt.GameTest do
       # Lion is worth 1 point.
       assert final.player.score == 1
       assert length(final.stats) == 1
+    end
+  end
+
+  describe "board transitions" do
+    # Tiny two-board world: board 0 is a stub title, board 1 has a
+    # player near the east edge and an `exit_east` pointing to board 2,
+    # which is empty except for a lone player stat.
+    defp two_board_game(exit_dir, exit_target) do
+      tiles0 = List.duplicate({0, 0x0F}, 1500)
+      board0 = %Board{title: "Title", tiles: tiles0, stats: [%Stat{x: 1, y: 1}]}
+
+      b1_tiles =
+        tiles0
+        |> List.replace_at(row_major(60, 13), {4, 0x1F})
+
+      b1_exits =
+        Map.put(
+          %{
+            exit_north: 0,
+            exit_south: 0,
+            exit_west: 0,
+            exit_east: 0
+          },
+          exit_dir,
+          exit_target
+        )
+
+      board1 =
+        struct(
+          Board,
+          [
+            title: "A",
+            tiles: b1_tiles,
+            stats: [%Stat{x: 60, y: 13, cycle: 1}]
+          ] ++ Map.to_list(b1_exits)
+        )
+
+      b2_tiles =
+        tiles0
+        |> List.replace_at(row_major(1, 13), {4, 0x1F})
+
+      board2 = %Board{title: "B", tiles: b2_tiles, stats: [%Stat{x: 1, y: 13, cycle: 1}]}
+
+      world = %World{
+        name: "T",
+        health: 100,
+        current_board: 1,
+        boards: [board0, board1, board2]
+      }
+
+      Game.new(world, 1)
+    end
+
+    defp row_major(x, y), do: (y - 1) * 60 + (x - 1)
+
+    test "walking off the east edge transitions to the neighbor board" do
+      game = two_board_game(:exit_east, 2)
+
+      final = Game.move_player(game, 1, 0)
+
+      assert final.board_index == 2
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {1, 13}
+    end
+
+    test "no neighbor on that edge: player stays put" do
+      game = two_board_game(:exit_east, 0)
+
+      final = Game.move_player(game, 1, 0)
+
+      assert final.board_index == 1
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {60, 13}
+    end
+
+    test "player inventory carries over into the new board" do
+      game =
+        two_board_game(:exit_east, 2)
+        |> Map.update!(:player, &%{&1 | ammo: 42, gems: 3, score: 99})
+
+      final = Game.move_player(game, 1, 0)
+
+      assert final.player.ammo == 42
+      assert final.player.gems == 3
+      assert final.player.score == 99
     end
   end
 end

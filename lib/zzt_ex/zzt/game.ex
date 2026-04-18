@@ -219,6 +219,9 @@ defmodule ZztEx.Zzt.Game do
   consume a key, reveal invisible walls, or block the mover by zeroing
   the delta), then — if the delta is still non-zero and the target is
   walkable afterwards — slide the player onto it.
+
+  Walking off the edge triggers a board transition when the current
+  board has a neighbor wired up in that direction.
   """
   @spec move_player(t(), integer(), integer()) :: t()
   def move_player(%__MODULE__{} = game, dx, dy) do
@@ -231,12 +234,70 @@ defmodule ZztEx.Zzt.Game do
         tx = player.x + dx
         ty = player.y + dy
 
-        if in_bounds?(tx, ty) do
-          {game, dx, dy} = ZztEx.Zzt.Touch.touch(game, tx, ty, 0, dx, dy)
-          finalize_move(game, dx, dy)
-        else
-          game
+        cond do
+          not in_bounds?(tx, ty) -> board_edge_touch(game, dx, dy)
+          true -> touch_and_move(game, tx, ty, dx, dy)
         end
+    end
+  end
+
+  defp touch_and_move(game, tx, ty, dx, dy) do
+    {game, dx, dy} = ZztEx.Zzt.Touch.touch(game, tx, ty, 0, dx, dy)
+    finalize_move(game, dx, dy)
+  end
+
+  # ZZT's BoardEdgeTouch: the "tile" the player just stepped onto is the
+  # virtual border around the playfield. Pick the matching neighbor
+  # board from Board.Info.NeighborBoards[N,S,W,E]; if it's non-zero,
+  # switch boards and place the player on the opposite edge.
+  # Without a loaded board or world there's no neighbor wiring; the edge
+  # just blocks, mirroring a board that has every exit set to 0.
+  defp board_edge_touch(%__MODULE__{board: nil} = game, _dx, _dy), do: game
+  defp board_edge_touch(%__MODULE__{world: nil} = game, _dx, _dy), do: game
+
+  defp board_edge_touch(%__MODULE__{board: board, world: world} = game, dx, dy) do
+    player = Enum.at(game.stats, 0)
+
+    {exit_board, entry_x, entry_y} =
+      cond do
+        dy == -1 -> {board.exit_north, player.x, Board.height()}
+        dy == 1 -> {board.exit_south, player.x, 1}
+        dx == -1 -> {board.exit_west, Board.width(), player.y}
+        dx == 1 -> {board.exit_east, 1, player.y}
+      end
+
+    cond do
+      exit_board == 0 -> game
+      exit_board >= length(world.boards) -> game
+      true -> change_board(game, exit_board, entry_x, entry_y)
+    end
+  end
+
+  @doc """
+  Transition to another board, preserving the player's inventory and
+  placing them at `{entry_x, entry_y}` on the new board. If the entry
+  tile isn't walkable the move is aborted and the current board state
+  is kept (matches ZZT's "revert" path in `ElementBoardEdgeTouch`).
+  """
+  @spec change_board(t(), non_neg_integer(), 1..60, 1..25) :: t()
+  def change_board(%__MODULE__{world: world, player: player} = game, new_idx, entry_x, entry_y) do
+    fresh = new(world, new_idx)
+    fresh = %{fresh | player: player}
+
+    {entry_elem, _color} = Map.fetch!(fresh.tiles, {entry_x, entry_y})
+
+    cond do
+      entry_elem == 4 ->
+        # Player already sits on the entry tile; nothing to do.
+        fresh
+
+      Element.walkable?(entry_elem) ->
+        # Move the player stat onto the entry tile.
+        move_stat(fresh, 0, entry_x, entry_y)
+
+      true ->
+        # Entry blocked — stay on the current board.
+        game
     end
   end
 
