@@ -22,6 +22,7 @@ defmodule ZztEx.Zzt.Render do
   @empty 0
   @board_edge 1
   @scroll 10
+  @bomb 13
   @star 15
   @conveyor_cw 16
   @conveyor_ccw 17
@@ -55,6 +56,9 @@ defmodule ZztEx.Zzt.Render do
       frame. Drives Star, Conveyor, Transporter, SpinningGun cycling.
     * `:title_screen?`  — blank the player avatar (ZZT swaps it for a
       Monitor on board 0).
+    * `:message`        — `{text, ticks}` overlay centered on the bottom
+      row (`y = 25`), mirroring `ElementMessageTimerTick`. `ticks`
+      cycles the foreground color through palette 9..15.
   """
   @spec rows(Board.t(), keyword()) :: [[cell()]]
   def rows(%Board{} = board, opts \\ []) do
@@ -64,17 +68,50 @@ defmodule ZztEx.Zzt.Render do
     player_pos = title_screen? && player_position(board.stats)
     grid = List.to_tuple(board.tiles)
 
-    for y <- 1..Board.height() do
-      for x <- 1..Board.width() do
-        if player_pos == {x, y} do
-          {" ", 7, 0, false}
-        else
-          {element, color} = tile_at(grid, x, y)
-          compute_cell(grid, x, y, element, color, Map.get(stats_by_xy, {x, y}), tick)
+    rows =
+      for y <- 1..Board.height() do
+        for x <- 1..Board.width() do
+          if player_pos == {x, y} do
+            {" ", 7, 0, false}
+          else
+            {element, color} = tile_at(grid, x, y)
+            compute_cell(grid, x, y, element, color, Map.get(stats_by_xy, {x, y}), tick)
+          end
         end
       end
-    end
+
+    overlay_message(rows, Keyword.get(opts, :message))
   end
+
+  defp overlay_message(rows, nil), do: rows
+  defp overlay_message(rows, {_text, ticks}) when ticks <= 0, do: rows
+
+  defp overlay_message(rows, {text, ticks}) do
+    # Truncate so `' ' + text + ' '` fits inside 60 columns.
+    max_inner = 58
+    text = if String.length(text) > max_inner, do: String.slice(text, 0, max_inner), else: text
+    padded = " " <> text <> " "
+    len = String.length(padded)
+
+    # `(60 - length) div 2` in 0-indexed video-space → our 1-indexed col.
+    start_col = div(60 - len, 2) + 1
+    fg = 9 + rem(ticks, 7)
+
+    cells = for <<b <- padded>>, do: {Cp437.char(b), fg, 0, false}
+
+    row_idx = Board.height() - 1
+    old_row = Enum.at(rows, row_idx)
+    new_row = splice(old_row, start_col - 1, cells)
+    List.replace_at(rows, row_idx, new_row)
+  end
+
+  defp splice(row, _idx, []), do: row
+
+  defp splice(row, idx, [cell | rest]) when idx >= 0 and idx < 60 do
+    splice(List.replace_at(row, idx, cell), idx + 1, rest)
+  end
+
+  defp splice(row, _idx, _cells), do: row
 
   defp compute_cell(grid, x, y, element, color, stat, tick) do
     cond do
@@ -122,6 +159,12 @@ defmodule ZztEx.Zzt.Render do
 
   defp draw(@object, %Stat{p1: p1}, _tick, _grid, _x, _y, fg),
     do: {p1, fg}
+
+  # Armed bomb counts down; ElementBombDraw swaps the default glyph for
+  # the ASCII digit `48 + P1` once P1 > 1, so the player sees "9" through
+  # "2" tick past before the blast.
+  defp draw(@bomb, %Stat{p1: p1}, _tick, _grid, _x, _y, fg) when p1 > 1,
+    do: {0x30 + p1, fg}
 
   defp draw(@line, _stat, _tick, grid, x, y, fg),
     do: {line_char(grid, x, y), fg}

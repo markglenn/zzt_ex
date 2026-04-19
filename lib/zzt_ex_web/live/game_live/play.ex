@@ -168,7 +168,11 @@ defmodule ZztExWeb.GameLive.Play do
     |> assign(:board, game.board)
     |> assign(
       :board_rows,
-      Render.rows(board, tick: game.stat_tick, title_screen?: game.board_index == 0)
+      Render.rows(board,
+        tick: game.stat_tick,
+        title_screen?: game.board_index == 0,
+        message: game.message && {game.message, game.message_ticks}
+      )
     )
     |> assign(:sidebar_rows, Sidebar.rows(game.player))
   end

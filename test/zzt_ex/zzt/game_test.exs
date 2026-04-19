@@ -410,6 +410,35 @@ defmodule ZztEx.Zzt.GameTest do
     end
   end
 
+  describe "display_message/3" do
+    test "sets message + converted tick count and clears after advance counts down" do
+      # Reference calls DisplayMessage in BIOS-tick durations; 27 → 27 div 9 = 3 game ticks.
+      game =
+        blank_game(player_xy: {10, 10})
+        |> Game.display_message(27, "Hello")
+
+      assert game.message == "Hello"
+      assert game.message_ticks == 3
+
+      game = Game.advance(game)
+      assert game.message_ticks == 2
+
+      game = game |> Game.advance() |> Game.advance()
+      assert game.message == nil
+      assert game.message_ticks == 0
+    end
+
+    test "damage_player surfaces Ouch!" do
+      game = blank_game(player_xy: {10, 10})
+      final = Game.damage_player(game, 10)
+
+      assert final.player.health == 90
+      assert final.message == "Ouch!"
+      # 100 BIOS-tick duration → 100 div 9 = 11 game ticks.
+      assert final.message_ticks == 11
+    end
+  end
+
   describe "passage_teleport/3" do
     # Two-board world with a blue passage (color 0x01) on each board.
     # Walking into the one on board 1 should teleport to the one on
@@ -471,6 +500,29 @@ defmodule ZztEx.Zzt.GameTest do
 
       assert final.player.score == 77
       assert final.player.torches == 3
+    end
+  end
+
+  describe "object touch" do
+    test "touching an object runs its :TOUCH handler inline, not on next advance" do
+      code = "@obj\r:TOUCH\r#set touched\r#end\r"
+      obj = %Stat{x: 11, y: 10, cycle: 3, code: code}
+
+      game = blank_game(player_xy: {10, 10})
+
+      game = %{
+        game
+        | tiles: Map.put(game.tiles, {11, 10}, {36, 0x0F}),
+          stats: game.stats ++ [obj]
+      }
+
+      final = Game.move_player(game, 1, 0)
+
+      # Flag set this frame — no Game.advance needed.
+      assert Game.flag?(final, "touched")
+      # Player didn't walk onto the object tile.
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {10, 10}
     end
   end
 

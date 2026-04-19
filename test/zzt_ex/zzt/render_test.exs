@@ -145,4 +145,45 @@ defmodule ZztEx.Zzt.RenderTest do
       step_y: Keyword.get(opts, :step_y, 0)
     }
   end
+
+  describe "message overlay" do
+    test "centers the message with surrounding spaces on the bottom row" do
+      {:ok, world} = World.parse(ZztFixture.world(tiles: empty_tiles()))
+      [board] = world.boards
+
+      rows = Render.rows(board, message: {"Hi", 5})
+
+      # " Hi " is 4 chars, so (60 - 4) div 2 = 28 → 1-indexed start col 29.
+      assert cell_at(rows, 29, 25) == {" ", 9 + rem(5, 7), 0, false}
+      assert cell_at(rows, 30, 25) == {"H", 14, 0, false}
+      assert cell_at(rows, 31, 25) == {"i", 14, 0, false}
+      assert cell_at(rows, 32, 25) == {" ", 14, 0, false}
+    end
+
+    test "foreground cycles by ticks mod 7" do
+      {:ok, world} = World.parse(ZztFixture.world(tiles: empty_tiles()))
+      [board] = world.boards
+
+      rows_a = Render.rows(board, message: {"X", 7})
+      rows_b = Render.rows(board, message: {"X", 8})
+
+      {_char, fg_a, _bg, _blink} = cell_at(rows_a, 30, 25)
+      {_char, fg_b, _bg, _blink} = cell_at(rows_b, 30, 25)
+
+      # 7 mod 7 = 0 → fg 9; 8 mod 7 = 1 → fg 10.
+      assert fg_a == 9
+      assert fg_b == 10
+    end
+
+    test "ticks <= 0 skips the overlay" do
+      {:ok, world} = World.parse(ZztFixture.world(tiles: empty_tiles()))
+      [board] = world.boards
+
+      rows_with = Render.rows(board, message: {"Hi", 5})
+      rows_without = Render.rows(board, message: {"Hi", 0})
+
+      refute cell_at(rows_with, 30, 25) == cell_at(rows_without, 30, 25)
+      assert cell_at(rows_without, 30, 25) == {" ", 7, 0, false}
+    end
+  end
 end

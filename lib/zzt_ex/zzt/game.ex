@@ -29,7 +29,9 @@ defmodule ZztEx.Zzt.Game do
             player: %{},
             stat_tick: 0,
             pending_scroll: nil,
-            flags: MapSet.new()
+            flags: MapSet.new(),
+            message: nil,
+            message_ticks: 0
 
   @type player_state :: %{
           health: integer(),
@@ -52,7 +54,9 @@ defmodule ZztEx.Zzt.Game do
           player: player_state(),
           stat_tick: non_neg_integer(),
           pending_scroll: scroll() | nil,
-          flags: MapSet.t()
+          flags: MapSet.t(),
+          message: String.t() | nil,
+          message_ticks: non_neg_integer()
         }
 
   @doc """
@@ -118,7 +122,25 @@ defmodule ZztEx.Zzt.Game do
   def advance(%__MODULE__{} = game) do
     %{game | stat_tick: game.stat_tick + 1}
     |> decrement_energizer()
+    |> decrement_message()
     |> tick_stats()
+  end
+
+  # Approximates the reference's `TickTimeDuration + 1` at speed 4 —
+  # `TickSpeed * 2 + 1` = 9. The caller passes a BIOS-tick duration
+  # (matching `DisplayMessage(200, ...)` in ELEMENTS.PAS) and we divide
+  # down to the number of stat passes the message survives for.
+  @message_tick_divisor 9
+
+  @doc """
+  Surface a transient message for `ticks` BIOS-tick durations (the
+  same units the reference's `DisplayMessage` takes). Ports that proc
+  — we keep the state on the game and count it down in `advance/1`
+  rather than using a hidden timer stat.
+  """
+  @spec display_message(t(), non_neg_integer(), String.t()) :: t()
+  def display_message(%__MODULE__{} = game, ticks, message) do
+    %{game | message: message, message_ticks: div(ticks, @message_tick_divisor)}
   end
 
   @doc "Clear any pending scroll — lets the world tick again."
@@ -345,10 +367,14 @@ defmodule ZztEx.Zzt.Game do
     Enum.find_index(stats, fn s -> s.x == x and s.y == y end)
   end
 
-  @doc "Apply `amount` damage to the player (clamped to zero)."
+  @doc """
+  Apply `amount` damage to the player (clamped to zero) and surface the
+  stock "Ouch!" message. Mirrors `DamageStat(0)` in the reference.
+  """
   @spec damage_player(t(), non_neg_integer()) :: t()
   def damage_player(%__MODULE__{} = game, amount) do
     %{game | player: %{game.player | health: max(0, game.player.health - amount)}}
+    |> display_message(100, "Ouch!")
   end
 
   @doc "Whether the player currently has an active energizer."
@@ -589,6 +615,16 @@ defmodule ZztEx.Zzt.Game do
 
   defp decrement_energizer(game), do: game
 
+  defp decrement_message(%{message_ticks: 0} = game), do: game
+
+  defp decrement_message(%{message_ticks: 1} = game) do
+    %{game | message: nil, message_ticks: 0}
+  end
+
+  defp decrement_message(%{message_ticks: n} = game) do
+    %{game | message_ticks: n - 1}
+  end
+
   # ZZT ticks stat i when (stat_tick mod cycle) == (i mod cycle). That
   # staggers stats sharing a cycle so they don't all burst on the same
   # frame, giving the classic "scattered" monster pacing.
@@ -643,6 +679,8 @@ defmodule ZztEx.Zzt.Game do
       :segment -> AI.Centipede.segment_tick(game, cur_idx)
       :conveyor_cw -> AI.Conveyor.cw_tick(game, cur_idx)
       :conveyor_ccw -> AI.Conveyor.ccw_tick(game, cur_idx)
+      :bomb -> AI.Bomb.tick(game, cur_idx)
+      :blink_wall -> AI.BlinkWall.tick(game, cur_idx)
       :object -> Oop.tick(game, cur_idx)
       _ -> game
     end

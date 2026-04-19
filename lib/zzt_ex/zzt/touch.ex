@@ -11,6 +11,7 @@ defmodule ZztEx.Zzt.Touch do
   """
 
   alias ZztEx.Zzt.{Element, Game, Oop, Scroll, Stat}
+  alias ZztEx.Zzt.AI.Transporter
 
   @type delta :: integer()
   @type result :: {Game.t(), delta(), delta()}
@@ -22,6 +23,7 @@ defmodule ZztEx.Zzt.Touch do
   @gem 7
   @key 8
   @door 9
+  @bomb 13
   @energizer 14
   @water 19
   @forest 20
@@ -35,6 +37,7 @@ defmodule ZztEx.Zzt.Touch do
   @boulder 24
   @slider_ns 25
   @slider_ew 26
+  @transporter 30
   @object 36
 
   # Every monster/projectile that hurts the player on contact.
@@ -148,6 +151,34 @@ defmodule ZztEx.Zzt.Touch do
     {Game.push_tile(game, x, y, dx, dy), dx, dy}
   end
 
+  # Transporter: try to teleport the mover through. Always zeroes the
+  # delta so the outer move loop doesn't also try to slide the mover
+  # onto the transporter tile itself.
+  defp dispatch(@transporter, _color, game, x, y, _src, dx, dy) do
+    {Transporter.try_move(game, x - dx, y - dy, dx, dy), 0, 0}
+  end
+
+  # Bomb: unarmed (P1 = 0) arms to P1 = 9 on contact and blocks the
+  # mover. Already armed? It behaves like any other pushable — shove
+  # the live bomb forward if possible.
+  defp dispatch(@bomb, _color, game, x, y, _src, dx, dy) do
+    case find_stat_at(game.stats, x, y) do
+      nil ->
+        {game, dx, dy}
+
+      idx ->
+        stat = Enum.at(game.stats, idx)
+
+        if stat.p1 == 0 do
+          new_stats = List.replace_at(game.stats, idx, %Stat{stat | p1: 9})
+          game = Game.display_message(%{game | stats: new_stats}, 200, "Bomb activated!")
+          {game, 0, 0}
+        else
+          {Game.push_tile(game, x, y, dx, dy), dx, dy}
+        end
+    end
+  end
+
   # Passage: teleport to the matching-color passage on the board stored
   # in the passage stat's p3. Delta is cleared so the outer move loop
   # doesn't also try to slide the player onto the old passage tile.
@@ -233,11 +264,13 @@ defmodule ZztEx.Zzt.Touch do
   # Object: dispatch the `:touch` label on the object's OOP program.
   # Negative stat id tells Oop.send this is an engine-triggered event,
   # so a locked (P2=1) object ignores its own touch. The player never
-  # walks onto the object — delta zeroed.
+  # walks onto the object — delta zeroed. We tick the object inline so
+  # its :TOUCH handler runs this frame instead of waiting up to a full
+  # cycle for the next `Game.advance` pass.
   defp dispatch(@object, _color, game, x, y, _src, _dx, _dy) do
     case find_stat_at(game.stats, x, y) do
       nil -> {game, 0, 0}
-      idx -> {Oop.send(game, -idx, "TOUCH"), 0, 0}
+      idx -> {game |> Oop.send(-idx, "TOUCH") |> Oop.tick(idx), 0, 0}
     end
   end
 
