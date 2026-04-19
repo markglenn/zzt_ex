@@ -30,6 +30,9 @@ defmodule ZztEx.Zzt.AI.Ruffian do
 
   defp maybe_start_walking(game, stat_idx, ruffian) do
     # `(P2 + 8) <= Random(17)` — high p2 makes the ruffian stay put longer.
+    # Reference just stores the new step here and exits; movement happens
+    # on the *next* tick when the walking branch runs. Attempting the
+    # move this tick would double the ruffian's speed.
     if ruffian.p2 + 8 <= :rand.uniform(17) - 1 do
       {sx, sy} =
         if ruffian.p1 >= :rand.uniform(9) - 1 do
@@ -38,9 +41,7 @@ defmodule ZztEx.Zzt.AI.Ruffian do
           Directions.random_step()
         end
 
-      game
-      |> set_step(stat_idx, sx, sy)
-      |> attempt_move(stat_idx)
+      set_step(game, stat_idx, sx, sy)
     else
       game
     end

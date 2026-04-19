@@ -97,10 +97,12 @@ defmodule ZztEx.Zzt.Element do
   def default_char(id) when id in 54..255, do: 0x3F
   def text?(id) when id in 54..255, do: false
 
-  # Elements that monsters and the player can move onto. Mirrors ZZT's
-  # `ElementDefs[X].Walkable` flags: Empty, Water (splashes), and Fake
-  # walls (look solid, aren't).
-  @walkable [0, 19, 27]
+  # Mirrors `ElementDefs[X].Walkable` — only Empty and Fake. Water
+  # (19) is deliberately NOT in this list: the reference's Bullet and
+  # Star ticks handle water via explicit `or E_WATER` checks, while
+  # every other mover (Lion, Bear, Ruffian, Slime, Centipede, Pusher,
+  # Player) treats water as a wall blocked by its touch proc.
+  @walkable [0, 27]
 
   @doc "Whether a monster or the player can step onto `id`."
   @spec walkable?(0..255) :: boolean()
