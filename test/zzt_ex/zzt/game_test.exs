@@ -646,6 +646,19 @@ defmodule ZztEx.Zzt.GameTest do
 
       assert Game.light_torch(game) == game
     end
+
+    test "damage_player no-ops after death so Ouch! stops re-queuing" do
+      game =
+        blank_game(player_xy: {10, 10})
+        |> Map.update!(:player, &%{&1 | health: 0})
+        |> Map.put(:message, nil)
+        |> Map.put(:message_ticks, 0)
+
+      final = Game.damage_player(game, 10)
+
+      assert final.message == nil
+      assert final.player.health == 0
+    end
   end
 
   describe "pause" do

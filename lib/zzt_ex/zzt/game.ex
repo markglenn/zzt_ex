@@ -496,6 +496,8 @@ defmodule ZztEx.Zzt.Game do
   game, matching GAME.PAS:1177-1193.
   """
   @spec damage_player(t(), non_neg_integer()) :: t()
+  def damage_player(%__MODULE__{player: %{health: h}} = game, _amount) when h <= 0, do: game
+
   def damage_player(%__MODULE__{} = game, amount) do
     game
     |> Map.update!(:player, fn p -> %{p | health: max(0, p.health - amount)} end)
