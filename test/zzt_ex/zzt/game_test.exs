@@ -497,6 +497,62 @@ defmodule ZztEx.Zzt.GameTest do
     end
   end
 
+  describe "damage_player/2 with restart_on_zap?" do
+    defp zap_board_game(opts) do
+      {sx, sy} = Keyword.get(opts, :start_xy, {5, 5})
+      {px, py} = Keyword.get(opts, :player_xy, {10, 10})
+      restart? = Keyword.get(opts, :restart_on_zap?, true)
+
+      tiles =
+        for y <- 1..Board.height(), x <- 1..Board.width(), into: %{} do
+          {{x, y}, {0, 0x0F}}
+        end
+        |> Map.put({px, py}, {4, 0x1F})
+
+      %Game{
+        board: %Board{title: "zap", restart_on_zap?: restart?},
+        tiles: tiles,
+        stats: [%Stat{x: px, y: py, cycle: 1}],
+        player: base_player_state(health: 100),
+        stat_tick: 0,
+        start_player_x: sx,
+        start_player_y: sy
+      }
+    end
+
+    test "teleports the player to the start and pauses when the flag is set" do
+      game = zap_board_game(start_xy: {5, 5}, player_xy: {30, 13})
+
+      final = Game.damage_player(game, 10)
+
+      assert final.player.health == 90
+      assert final.paused?
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {5, 5}
+    end
+
+    test "board without restart_on_zap? leaves the player put" do
+      game = zap_board_game(restart_on_zap?: false, player_xy: {30, 13})
+
+      final = Game.damage_player(game, 10)
+
+      refute final.paused?
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {30, 13}
+    end
+
+    test "fatal damage doesn't reenter — player stays where they died" do
+      game = zap_board_game(player_xy: {30, 13}) |> Map.update!(:player, &%{&1 | health: 10})
+
+      final = Game.damage_player(game, 10)
+
+      assert final.player.health == 0
+      refute final.paused?
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {30, 13}
+    end
+  end
+
   describe "pause" do
     test "toggle_pause/1 flips the flag and advance no-ops while paused" do
       game = blank_game(player_xy: {10, 10})

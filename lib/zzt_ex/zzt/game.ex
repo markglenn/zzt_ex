@@ -32,7 +32,9 @@ defmodule ZztEx.Zzt.Game do
             flags: MapSet.new(),
             message: nil,
             message_ticks: 0,
-            paused?: false
+            paused?: false,
+            start_player_x: 0,
+            start_player_y: 0
 
   @type player_state :: %{
           health: integer(),
@@ -59,7 +61,9 @@ defmodule ZztEx.Zzt.Game do
           flags: MapSet.t(),
           message: String.t() | nil,
           message_ticks: non_neg_integer(),
-          paused?: boolean()
+          paused?: boolean(),
+          start_player_x: 1..60,
+          start_player_y: 1..25
         }
 
   @doc """
@@ -69,6 +73,7 @@ defmodule ZztEx.Zzt.Game do
   def new(%World{} = world, board_index \\ nil) do
     idx = board_index || world.current_board
     board = Enum.at(world.boards, idx)
+    player_stat = Enum.at(board.stats, 0)
 
     %__MODULE__{
       world: world,
@@ -87,7 +92,9 @@ defmodule ZztEx.Zzt.Game do
         energizer_ticks: world.energizer_cycles
       },
       stat_tick: 0,
-      flags: world.flags |> Enum.reject(&(&1 == "")) |> Enum.map(&String.upcase/1) |> MapSet.new()
+      flags: world.flags |> Enum.reject(&(&1 == "")) |> Enum.map(&String.upcase/1) |> MapSet.new(),
+      start_player_x: (player_stat && player_stat.x) || 1,
+      start_player_y: (player_stat && player_stat.y) || 1
     }
   end
 
@@ -416,13 +423,28 @@ defmodule ZztEx.Zzt.Game do
 
   @doc """
   Apply `amount` damage to the player (clamped to zero) and surface the
-  stock "Ouch!" message. Mirrors `DamageStat(0)` in the reference.
+  stock "Ouch!" message. Mirrors `DamageStat(0)` — if the player
+  survives AND the current board has `ReenterWhenZapped` set, snap
+  them back to the board's captured start position and pause the
+  game, matching GAME.PAS:1177-1193.
   """
   @spec damage_player(t(), non_neg_integer()) :: t()
   def damage_player(%__MODULE__{} = game, amount) do
-    %{game | player: %{game.player | health: max(0, game.player.health - amount)}}
+    game
+    |> Map.update!(:player, fn p -> %{p | health: max(0, p.health - amount)} end)
     |> display_message(100, "Ouch!")
+    |> maybe_reenter_on_zap()
   end
+
+  defp maybe_reenter_on_zap(%__MODULE__{player: %{health: h}} = game) when h <= 0, do: game
+
+  defp maybe_reenter_on_zap(%__MODULE__{board: %Board{restart_on_zap?: true}} = game) do
+    game
+    |> move_stat(0, game.start_player_x, game.start_player_y)
+    |> Map.put(:paused?, true)
+  end
+
+  defp maybe_reenter_on_zap(game), do: game
 
   @doc "Whether the player currently has an active energizer."
   @spec energized?(t()) :: boolean()
@@ -543,11 +565,21 @@ defmodule ZztEx.Zzt.Game do
     {entry_elem, _color} = Map.fetch!(fresh.tiles, {entry_x, entry_y})
 
     cond do
-      entry_elem == 4 -> fresh
-      Element.walkable?(entry_elem) -> move_stat(fresh, 0, entry_x, entry_y)
+      entry_elem == 4 -> capture_start(fresh)
+      Element.walkable?(entry_elem) -> fresh |> move_stat(0, entry_x, entry_y) |> capture_start()
       true -> game
     end
   end
+
+  # BoardEnter captures the player's just-arrived position as
+  # Info.StartPlayerX/Y so `ReenterWhenZapped` knows where to send
+  # them back to (GAME.PAS:1309). We do the same off the current
+  # stats[0].
+  defp capture_start(%__MODULE__{stats: [player | _]} = game) do
+    %{game | start_player_x: player.x, start_player_y: player.y}
+  end
+
+  defp capture_start(game), do: game
 
   @doc """
   Player shoots in `(dx, dy)`. Ports the shooting branch of
@@ -666,8 +698,8 @@ defmodule ZztEx.Zzt.Game do
       fresh = %{fresh | player: player}
 
       case find_colored_passage(fresh, color) do
-        {nx, ny} -> move_stat(fresh, 0, nx, ny)
-        nil -> fresh
+        {nx, ny} -> fresh |> move_stat(0, nx, ny) |> capture_start()
+        nil -> capture_start(fresh)
       end
     else
       _ -> game
