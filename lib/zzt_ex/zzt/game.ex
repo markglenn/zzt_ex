@@ -19,7 +19,7 @@ defmodule ZztEx.Zzt.Game do
   handler (currently only Lion).
   """
 
-  alias ZztEx.Zzt.{AI, Board, Element, Stat, World}
+  alias ZztEx.Zzt.{AI, Board, Element, Oop, Stat, World}
 
   defstruct world: nil,
             board_index: 0,
@@ -616,6 +616,7 @@ defmodule ZztEx.Zzt.Game do
       :segment -> AI.Centipede.segment_tick(game, cur_idx)
       :conveyor_cw -> AI.Conveyor.cw_tick(game, cur_idx)
       :conveyor_ccw -> AI.Conveyor.ccw_tick(game, cur_idx)
+      :object -> Oop.tick(game, cur_idx)
       _ -> game
     end
   end

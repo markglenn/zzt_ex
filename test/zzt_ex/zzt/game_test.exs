@@ -520,6 +520,7 @@ defmodule ZztEx.Zzt.GameTest do
 
     test "scroll_cursor moves line_pos and clamps to the line count" do
       lines = ~w(one two three)
+
       game =
         blank_game(player_xy: {10, 10})
         |> Map.put(:pending_scroll, %{title: "T", lines: lines, line_pos: 1})
