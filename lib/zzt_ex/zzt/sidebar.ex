@@ -145,6 +145,110 @@ defmodule ZztEx.Zzt.Sidebar do
     |> paint(@value_col, Integer.to_string(remaining), @yellow, @blue)
   end
 
+  @doc """
+  Build the title-screen ("Monitor") sidebar — the E_MONITOR branch
+  of GameDrawSidebar (GAME.PAS:1456-1482). We surface only the
+  commands the port supports: W (World), P (Play), A (About), plus
+  the read-only game-speed slider.
+
+  Opts:
+
+    * `:world_name` — shown on row 9 next to the W keybind, `"Untitled"`
+      when missing.
+    * `:speed` — 1..9 slider position; drives the arrow indicator on
+      row 23. Defaults to 5 (the reference's `TickSpeed := 4` / slider
+      position 5).
+  """
+  @spec monitor_rows(keyword()) :: [[cell()]]
+  def monitor_rows(opts \\ []) do
+    world_name = Keyword.get(opts, :world_name, "")
+    speed = Keyword.get(opts, :speed, 5)
+
+    [
+      dash_row(),
+      title_row(),
+      dash_row(),
+      blank_row(),
+      blank_row(),
+      pick_command_row(),
+      blank_row(),
+      world_key_row(),
+      world_name_row(world_name),
+      blank_row(),
+      blank_row(),
+      play_key_row(),
+      blank_row(),
+      blank_row(),
+      blank_row(),
+      blank_row(),
+      about_key_row(),
+      blank_row(),
+      blank_row(),
+      blank_row(),
+      blank_row(),
+      speed_label_row(),
+      speed_arrow_row(speed),
+      speed_track_row(),
+      blank_row()
+    ]
+  end
+
+  # `VideoWriteText(62, 5, $1B, 'Pick a command:')`. $1B = fg 11 / bg 1.
+  defp pick_command_row do
+    paint(blank_row(), 3, "Pick a command:", @light_cyan, @blue)
+  end
+
+  # `VideoWriteText(62, 7, $30, ' W ')` + `VideoWriteText(65, 7, $1E, ' World:')`.
+  # $30 = black on cyan, $1E = yellow on blue.
+  defp world_key_row do
+    blank_row()
+    |> paint(@icon_col, " W ", @black, @cyan)
+    |> paint(@desc_col, "World:", @yellow, @blue)
+  end
+
+  # `VideoWriteText(69, 8, $1F, World.Info.Name | 'Untitled')`.
+  # VGA col 69 = sidebar-local 1-indexed col 10. $1F = white on blue.
+  defp world_name_row(""), do: world_name_row("Untitled")
+  defp world_name_row(nil), do: world_name_row("Untitled")
+  defp world_name_row(name), do: paint(blank_row(), 10, name, @white, @blue)
+
+  # `VideoWriteText(62, 11, $70, ' P ')` + `VideoWriteText(65, 11, $1F, ' Play')`.
+  defp play_key_row do
+    blank_row()
+    |> paint(@icon_col, " P ", @black, @grey)
+    |> paint(@desc_col, "Play", @white, @blue)
+  end
+
+  # `VideoWriteText(62, 16, $30, ' A ')` + `VideoWriteText(65, 16, $1F, ' About ZZT!')`.
+  defp about_key_row do
+    blank_row()
+    |> paint(@icon_col, " A ", @black, @cyan)
+    |> paint(@desc_col, "About ZZT!", @white, @blue)
+  end
+
+  # Mirrors SidebarPromptSlider(false, 66, 21, 'Game speed:;FS', ...)
+  # with editable=false. Three rows at y=21..23 — label, arrow, track.
+  # VGA col 66 = sidebar-local col 7. Colors match $1E (prompt), $1E
+  # (track); the arrow is always $9F in the editable case but this is
+  # the read-only view so we lean on the same yellow as the label.
+  defp speed_label_row do
+    blank_row()
+    |> paint(@icon_col, " S ", @black, @grey)
+    |> paint(7, "Game speed:", @yellow, @blue)
+  end
+
+  defp speed_arrow_row(speed) do
+    # `VideoWriteText(x + value + 1, y + 1, $9F, #31)` — value is 0..8
+    # for slider positions 1..9, so our 1-indexed column lands at
+    # `7 + value + 1` = 8..16.
+    value = max(min(speed - 1, 8), 0)
+    paint(blank_row(), 7 + value + 1, <<0x1F>>, @white, @blue)
+  end
+
+  defp speed_track_row do
+    paint(blank_row(), 7, "F....:....S", @yellow, @blue)
+  end
+
   defp cell(char_byte, fg, bg), do: {Cp437.char(char_byte), fg, bg, false}
 
   defp blank_row do

@@ -117,6 +117,54 @@ defmodule ZztEx.Zzt.SidebarTest do
     end
   end
 
+  describe "monitor_rows/1 (title screen)" do
+    test "drops the stat panel in favor of W/P/A commands" do
+      rows = Sidebar.monitor_rows(world_name: "TOWN", speed: 5)
+
+      assert length(rows) == 25
+
+      # Pick a command at row 6 in light cyan ($1B).
+      {_c, fg, bg, _} = Enum.at(Enum.at(rows, 5), 2)
+      assert {fg, bg} == {11, 1}
+      assert cell_string(Enum.at(rows, 5)) =~ "Pick a command:"
+
+      # World / Play / About keybind boxes on rows 8 / 12 / 17.
+      assert cell_string(Enum.at(rows, 7)) =~ "World:"
+      assert cell_string(Enum.at(rows, 11)) =~ "Play"
+      assert cell_string(Enum.at(rows, 16)) =~ "About ZZT!"
+
+      # Stats row doesn't leak through.
+      refute cell_string(Enum.at(rows, 7)) =~ "Health"
+    end
+
+    test "world name lands at col 10 per VideoWriteText(69, 8, ...)" do
+      rows = Sidebar.monitor_rows(world_name: "TOWN")
+      name_row = Enum.at(rows, 8)
+      text = cell_string(name_row)
+
+      assert String.slice(text, 9, 4) == "TOWN"
+    end
+
+    test "empty world name renders as 'Untitled'" do
+      rows = Sidebar.monitor_rows(world_name: "")
+      text = cell_string(Enum.at(rows, 8))
+
+      assert text =~ "Untitled"
+    end
+
+    test "speed indicator arrow sits at col 8 + (speed - 1)" do
+      rows = Sidebar.monitor_rows(world_name: "TEST", speed: 5)
+
+      # Track on row 24, arrow on row 23 at col 12 (8 + 4) for speed 5.
+      track = cell_string(Enum.at(rows, 23))
+      assert track =~ "F....:....S"
+
+      arrow_row = Enum.at(rows, 22)
+      {char, _fg, _bg, _} = Enum.at(arrow_row, 11)
+      assert char == <<0x25BC::utf8>>
+    end
+  end
+
   test "time_remaining > 0 inserts a 'Time: N' row at row 7" do
     rows = Sidebar.rows(world(), time_remaining: 42)
     text = cell_string(Enum.at(rows, 6))

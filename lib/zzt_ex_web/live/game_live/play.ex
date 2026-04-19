@@ -34,7 +34,9 @@ defmodule ZztExWeb.GameLive.Play do
         if connected?(socket),
           do: Process.send_after(self(), :tick, interval_ms(@default_speed))
 
-        game = Game.new(world)
+        # ZZT always drops the player on board 0 (the Monitor / title
+        # screen) at startup, then Play jumps to world.current_board.
+        game = Game.new(world, 0)
 
         {:ok,
          socket
@@ -82,6 +84,9 @@ defmodule ZztExWeb.GameLive.Play do
       socket.assigns.game.pending_scroll ->
         handle_scroll_key(key, socket)
 
+      title_screen?(socket) ->
+        handle_title_key(key, socket)
+
       ZztEx.Zzt.Game.game_over?(socket.assigns.game) ->
         handle_game_over_key(key, socket)
 
@@ -119,6 +124,49 @@ defmodule ZztExWeb.GameLive.Play do
   defp handle_game_over_key("Escape", socket), do: {:noreply, push_navigate(socket, to: ~p"/")}
   defp handle_game_over_key(_key, socket), do: {:noreply, socket}
 
+  # Board 0 acts as ZZT's Monitor / title screen. Only the P / W / A
+  # commands — plus ESC back to the library — respond here; the other
+  # key bindings are suppressed until the player enters a real board.
+  defp title_screen?(socket), do: socket.assigns.game.board_index == 0
+
+  defp handle_title_key(key, socket) do
+    cond do
+      key in ["p", "P"] ->
+        game = Game.enter_board(socket.assigns.game, socket.assigns.world.current_board)
+        {:noreply, refresh_rows(socket, game)}
+
+      key in ["w", "W", "Escape"] ->
+        {:noreply, push_navigate(socket, to: ~p"/")}
+
+      key in ["a", "A"] ->
+        {:noreply, refresh_rows(socket, show_about(socket.assigns.game))}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  # No ABOUT.HLP to load, so synthesize a small scroll that tells the
+  # user what this port is. Uses the same pending_scroll channel the
+  # OOP interpreter already drives.
+  defp show_about(game) do
+    lines = [
+      "$ZZT",
+      "$Elixir Port",
+      "",
+      "A web reconstruction of Tim Sweeney's",
+      "ZZT, built on Phoenix LiveView and",
+      "driven directly off .ZZT world files.",
+      "",
+      "Based on the public source release",
+      "reconstruction-of-zzt (Adrian Siekierka).",
+      "",
+      "Press ESCAPE to return to the menu."
+    ]
+
+    %{game | pending_scroll: %{title: "About ZZT...", lines: lines, line_pos: 1}}
+  end
+
   defp torch_key?("t"), do: true
   defp torch_key?("T"), do: true
   defp torch_key?(_), do: false
@@ -133,6 +181,17 @@ defmodule ZztExWeb.GameLive.Play do
   end
 
   defp time_remaining(_), do: 0
+
+  defp sidebar_rows(%{assigns: %{world: world, speed: speed}}, game) do
+    if game.board_index == 0 do
+      Sidebar.monitor_rows(world_name: world.name, speed: speed)
+    else
+      Sidebar.rows(game.player,
+        paused?: game.paused?,
+        time_remaining: time_remaining(game)
+      )
+    end
+  end
 
   defp shift_pressed?(%{"shiftKey" => true}), do: true
   defp shift_pressed?(%{"shift_key" => true}), do: true
@@ -215,13 +274,7 @@ defmodule ZztExWeb.GameLive.Play do
         paused?: game.paused?
       )
     )
-    |> assign(
-      :sidebar_rows,
-      Sidebar.rows(game.player,
-        paused?: game.paused?,
-        time_remaining: time_remaining(game)
-      )
-    )
+    |> assign(:sidebar_rows, sidebar_rows(socket, game))
   end
 
   @impl true

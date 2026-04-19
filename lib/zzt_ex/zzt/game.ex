@@ -269,6 +269,21 @@ defmodule ZztEx.Zzt.Game do
   def dismiss_scroll(%__MODULE__{} = game), do: %{game | pending_scroll: nil}
 
   @doc """
+  Jump straight into `board_index`, preserving the player's inventory
+  and landing on whatever position the target board's `stats[0]`
+  already carries. Mirrors BoardChange (GAME.PAS:270) for the
+  Play-from-title flow — no entry seam coordinate needed because the
+  player isn't walking in from an edge.
+  """
+  @spec enter_board(t(), non_neg_integer()) :: t()
+  def enter_board(%__MODULE__{world: nil} = game, _), do: game
+
+  def enter_board(%__MODULE__{world: world, player: player}, board_index) do
+    fresh = new(world, board_index)
+    %{fresh | player: player}
+  end
+
+  @doc """
   Move the scroll's cursor up (`-1`) or down (`+1`), clamping to the
   scroll's line count so the player can't scroll past either end.
   """
