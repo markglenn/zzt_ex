@@ -128,10 +128,15 @@ defmodule ZztEx.Zzt.SidebarTest do
       assert {fg, bg} == {11, 1}
       assert cell_string(Enum.at(rows, 5)) =~ "Pick a command:"
 
-      # World / Play / About keybind boxes on rows 8 / 12 / 17.
+      # Every menu command the reference draws is present, even ones
+      # the keydown path doesn't wire up yet.
       assert cell_string(Enum.at(rows, 7)) =~ "World:"
       assert cell_string(Enum.at(rows, 11)) =~ "Play"
+      assert cell_string(Enum.at(rows, 12)) =~ "Restore game"
+      assert cell_string(Enum.at(rows, 13)) =~ "Quit"
       assert cell_string(Enum.at(rows, 16)) =~ "About ZZT!"
+      assert cell_string(Enum.at(rows, 17)) =~ "High Scores"
+      assert cell_string(Enum.at(rows, 18)) =~ "Board Editor"
 
       # Stats row doesn't leak through.
       refute cell_string(Enum.at(rows, 7)) =~ "Health"

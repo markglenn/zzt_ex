@@ -147,9 +147,10 @@ defmodule ZztEx.Zzt.Sidebar do
 
   @doc """
   Build the title-screen ("Monitor") sidebar — the E_MONITOR branch
-  of GameDrawSidebar (GAME.PAS:1456-1482). We surface only the
-  commands the port supports: W (World), P (Play), A (About), plus
-  the read-only game-speed slider.
+  of GameDrawSidebar (GAME.PAS:1456-1482). Every command the
+  reference draws is shown; only Play/World/About/Speed are wired up
+  in the LiveView keydown path, the rest are visual-only stubs until
+  a future pass implements them.
 
   Opts:
 
@@ -177,13 +178,13 @@ defmodule ZztEx.Zzt.Sidebar do
       blank_row(),
       blank_row(),
       play_key_row(),
-      blank_row(),
-      blank_row(),
+      restore_key_row(),
+      quit_key_row(),
       blank_row(),
       blank_row(),
       about_key_row(),
-      blank_row(),
-      blank_row(),
+      high_scores_key_row(),
+      board_editor_key_row(),
       blank_row(),
       blank_row(),
       speed_label_row(),
@@ -219,11 +220,42 @@ defmodule ZztEx.Zzt.Sidebar do
     |> paint(@desc_col, "Play", @white, @blue)
   end
 
+  # `VideoWriteText(62, 12, $30, ' R ')` + `VideoWriteText(65, 12, $1E, ' Restore game')`.
+  defp restore_key_row do
+    blank_row()
+    |> paint(@icon_col, " R ", @black, @cyan)
+    |> paint(@desc_col, "Restore game", @yellow, @blue)
+  end
+
+  # `VideoWriteText(62, 13, $70, ' Q ')` + `VideoWriteText(65, 13, $1E, ' Quit')`.
+  defp quit_key_row do
+    blank_row()
+    |> paint(@icon_col, " Q ", @black, @grey)
+    |> paint(@desc_col, "Quit", @yellow, @blue)
+  end
+
   # `VideoWriteText(62, 16, $30, ' A ')` + `VideoWriteText(65, 16, $1F, ' About ZZT!')`.
   defp about_key_row do
     blank_row()
     |> paint(@icon_col, " A ", @black, @cyan)
     |> paint(@desc_col, "About ZZT!", @white, @blue)
+  end
+
+  # `VideoWriteText(62, 17, $70, ' H ')` + `VideoWriteText(65, 17, $1E, ' High Scores')`.
+  defp high_scores_key_row do
+    blank_row()
+    |> paint(@icon_col, " H ", @black, @grey)
+    |> paint(@desc_col, "High Scores", @yellow, @blue)
+  end
+
+  # `VideoWriteText(62, 18, $30, ' E ')` + `VideoWriteText(65, 18, $1E, ' Board Editor')`.
+  # The reference draws this only when EditorEnabled; we render it
+  # unconditionally for layout completeness and let the key handler
+  # stay a no-op.
+  defp board_editor_key_row do
+    blank_row()
+    |> paint(@icon_col, " E ", @black, @cyan)
+    |> paint(@desc_col, "Board Editor", @yellow, @blue)
   end
 
   # Mirrors SidebarPromptSlider(false, 66, 21, 'Game speed:;FS', ...)
