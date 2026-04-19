@@ -33,9 +33,33 @@ defmodule ZztEx.Zzt.SidebarTest do
     end
   end
 
+  test "top three rows are dash, title, dash matching GameDrawSidebar" do
+    rows = Sidebar.rows(world())
+
+    # Reference writes dashes at rows 0 and 2 and "ZZT" at row 1.
+    assert cell_string(Enum.at(rows, 0)) =~ "- - - - -"
+    assert cell_string(Enum.at(rows, 1)) =~ "ZZT"
+    assert cell_string(Enum.at(rows, 2)) =~ "- - - - -"
+
+    # "ZZT" title cell is black-on-grey per VideoWriteText(62, 1, $70, ...).
+    {_char, fg, bg, _blink} = Enum.at(Enum.at(rows, 1), 8)
+    assert {fg, bg} == {0, 7}
+  end
+
+  test "ammo and gem icons use bright cyan (fg 11) like the reference" do
+    rows = Sidebar.rows(world())
+    # Ammo row is after Health; Gem row after Torches.
+    {_char, ammo_fg, _bg, _blink} = Enum.at(Enum.at(rows, 8), 2)
+    {_char, gem_fg, _bg, _blink} = Enum.at(Enum.at(rows, 10), 2)
+
+    assert ammo_fg == 11
+    assert gem_fg == 11
+  end
+
   test "health row renders smiley at col 3 plus yellow 'Health:93'" do
     rows = Sidebar.rows(world(health: 93))
-    # Row order: blank, dash, title, dash, then three blank rows, then Health.
+    # Layout mirrors GameDrawSidebar: dash/title/dash, four blanks,
+    # then stats start at row 7.
     health_row = Enum.at(rows, 7)
     text = cell_string(health_row)
 

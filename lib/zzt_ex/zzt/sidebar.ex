@@ -30,6 +30,7 @@ defmodule ZztEx.Zzt.Sidebar do
   @cyan 3
   @brown 6
   @grey 7
+  @light_cyan 11
   @yellow 14
   @white 15
   @black 0
@@ -74,18 +75,20 @@ defmodule ZztEx.Zzt.Sidebar do
   """
   @spec rows(map()) :: [[cell()]]
   def rows(state) do
+    # Layout mirrors GameDrawSidebar (GAME.PAS:1420), reference row
+    # numbering 0..24 → our 1..25. Stats start at row 8 (ref row 7).
     [
-      blank_row(),
       dash_row(),
       title_row(),
       dash_row(),
       blank_row(),
       blank_row(),
       blank_row(),
+      blank_row(),
       stat_row(@icon_smiley, @white, "Health:", state.health),
-      stat_row(@icon_ammo, @cyan, "Ammo:", state.ammo),
+      stat_row(@icon_ammo, @light_cyan, "Ammo:", state.ammo),
       torches_row(state),
-      stat_row(@icon_gem, @cyan, "Gems:", state.gems),
+      stat_row(@icon_gem, @light_cyan, "Gems:", state.gems),
       score_row(state.score),
       keys_row(state.keys),
       blank_row(),
