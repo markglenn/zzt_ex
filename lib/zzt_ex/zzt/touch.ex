@@ -10,7 +10,7 @@ defmodule ZztEx.Zzt.Touch do
   delta of `{0, 0}` blocks the mover from advancing onto the tile.
   """
 
-  alias ZztEx.Zzt.{Element, Game, Scroll, Stat}
+  alias ZztEx.Zzt.{Element, Game, Oop, Scroll, Stat}
 
   @type delta :: integer()
   @type result :: {Game.t(), delta(), delta()}
@@ -35,6 +35,7 @@ defmodule ZztEx.Zzt.Touch do
   @boulder 24
   @slider_ns 25
   @slider_ew 26
+  @object 36
 
   # Every monster/projectile that hurts the player on contact.
   @damaging [15, 18, 34, 35, 41, 42, 44, 45]
@@ -227,6 +228,17 @@ defmodule ZztEx.Zzt.Touch do
       end
 
     {game, dx, dy}
+  end
+
+  # Object: dispatch the `:touch` label on the object's OOP program.
+  # Negative stat id tells Oop.send this is an engine-triggered event,
+  # so a locked (P2=1) object ignores its own touch. The player never
+  # walks onto the object — delta zeroed.
+  defp dispatch(@object, _color, game, x, y, _src, _dx, _dy) do
+    case find_stat_at(game.stats, x, y) do
+      nil -> {game, 0, 0}
+      idx -> {Oop.send(game, -idx, "TOUCH"), 0, 0}
+    end
   end
 
   # ---- default -----------------------------------------------------------

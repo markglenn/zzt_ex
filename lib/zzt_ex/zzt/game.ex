@@ -28,7 +28,8 @@ defmodule ZztEx.Zzt.Game do
             stats: [],
             player: %{},
             stat_tick: 0,
-            pending_scroll: nil
+            pending_scroll: nil,
+            flags: MapSet.new()
 
   @type player_state :: %{
           health: integer(),
@@ -50,7 +51,8 @@ defmodule ZztEx.Zzt.Game do
           stats: [Stat.t()],
           player: player_state(),
           stat_tick: non_neg_integer(),
-          pending_scroll: scroll() | nil
+          pending_scroll: scroll() | nil,
+          flags: MapSet.t()
         }
 
   @doc """
@@ -76,8 +78,33 @@ defmodule ZztEx.Zzt.Game do
         score: world.score,
         energizer_ticks: world.energizer_cycles
       },
-      stat_tick: 0
+      stat_tick: 0,
+      flags: world.flags |> Enum.reject(&(&1 == "")) |> Enum.map(&String.upcase/1) |> MapSet.new()
     }
+  end
+
+  @doc "Whether the named world flag is currently set (case-insensitive)."
+  @spec flag?(t(), String.t()) :: boolean()
+  def flag?(%__MODULE__{flags: flags}, name) do
+    MapSet.member?(flags, String.upcase(name))
+  end
+
+  @doc "Set a world flag (case-insensitive, capped at 10 flags like the reference)."
+  @spec set_flag(t(), String.t()) :: t()
+  def set_flag(%__MODULE__{flags: flags} = game, name) do
+    upper = String.upcase(name)
+
+    if MapSet.member?(flags, upper) or MapSet.size(flags) >= 10 do
+      game
+    else
+      %{game | flags: MapSet.put(flags, upper)}
+    end
+  end
+
+  @doc "Clear a world flag (case-insensitive)."
+  @spec clear_flag(t(), String.t()) :: t()
+  def clear_flag(%__MODULE__{flags: flags} = game, name) do
+    %{game | flags: MapSet.delete(flags, String.upcase(name))}
   end
 
   @doc """
