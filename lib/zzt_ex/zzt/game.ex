@@ -34,7 +34,9 @@ defmodule ZztEx.Zzt.Game do
             message_ticks: 0,
             paused?: false,
             start_player_x: 0,
-            start_player_y: 0
+            start_player_y: 0,
+            board_time_sec: 0,
+            board_time_ticks: 0
 
   @type player_state :: %{
           health: integer(),
@@ -63,7 +65,9 @@ defmodule ZztEx.Zzt.Game do
           message_ticks: non_neg_integer(),
           paused?: boolean(),
           start_player_x: 1..60,
-          start_player_y: 1..25
+          start_player_y: 1..25,
+          board_time_sec: non_neg_integer(),
+          board_time_ticks: non_neg_integer()
         }
 
   @doc """
@@ -75,7 +79,7 @@ defmodule ZztEx.Zzt.Game do
     board = Enum.at(world.boards, idx)
     player_stat = Enum.at(board.stats, 0)
 
-    %__MODULE__{
+    game = %__MODULE__{
       world: world,
       board_index: idx,
       board: board,
@@ -93,10 +97,46 @@ defmodule ZztEx.Zzt.Game do
       },
       stat_tick: 0,
       flags: world.flags |> Enum.reject(&(&1 == "")) |> Enum.map(&String.upcase/1) |> MapSet.new(),
-      start_player_x: (player_stat && player_stat.x) || 1,
-      start_player_y: (player_stat && player_stat.y) || 1
+      start_player_x: start_x(board, player_stat),
+      start_player_y: start_y(board, player_stat)
     }
+
+    surface_board_message(game)
   end
+
+  # BoardOpen reads Info.StartPlayerX/Y straight from the file — which
+  # for fresh worlds equals stats[0]'s position and for savegames may
+  # point at a different reenter spot. Prefer the file's value;
+  # `enter_x = 0` is invalid (positions are 1..60) so fall back to the
+  # player stat when the board header hasn't set it.
+  defp start_x(board, player) do
+    cond do
+      board.enter_x in 1..60 -> board.enter_x
+      player -> player.x
+      true -> 1
+    end
+  end
+
+  defp start_y(board, player) do
+    cond do
+      board.enter_y in 1..25 -> board.enter_y
+      player -> player.y
+      true -> 1
+    end
+  end
+
+  # If the board has a saved message text (typical only for savegames,
+  # where Board.Info.Message is mid-display), surface it through the
+  # same transient message channel the reference uses. 200 is the
+  # default DisplayMessage duration elsewhere in the port.
+  defp surface_board_message(%__MODULE__{board: %Board{message: ""}} = game), do: game
+  defp surface_board_message(%__MODULE__{board: %Board{message: nil}} = game), do: game
+
+  defp surface_board_message(%__MODULE__{board: %Board{message: msg}} = game) do
+    display_message(game, 200, msg)
+  end
+
+  defp surface_board_message(game), do: game
 
   @doc "Whether the named world flag is currently set (case-insensitive)."
   @spec flag?(t(), String.t()) :: boolean()
@@ -145,6 +185,7 @@ defmodule ZztEx.Zzt.Game do
     |> decrement_energizer()
     |> decrement_torch()
     |> decrement_message()
+    |> tick_board_time()
     |> tick_stats()
   end
 
@@ -433,8 +474,16 @@ defmodule ZztEx.Zzt.Game do
     game
     |> Map.update!(:player, fn p -> %{p | health: max(0, p.health - amount)} end)
     |> display_message(100, "Ouch!")
+    |> reset_board_timer_if_alive()
     |> maybe_reenter_on_zap()
   end
+
+  # GAME.PAS:1178 zeroes BoardTimeSec whenever the player takes
+  # non-fatal damage so the clock can't pile up a second hit.
+  defp reset_board_timer_if_alive(%__MODULE__{player: %{health: h}} = game) when h > 0,
+    do: %{game | board_time_sec: 0, board_time_ticks: 0}
+
+  defp reset_board_timer_if_alive(game), do: game
 
   defp maybe_reenter_on_zap(%__MODULE__{player: %{health: h}} = game) when h <= 0, do: game
 
@@ -759,6 +808,47 @@ defmodule ZztEx.Zzt.Game do
 
   defp decrement_message(%{message_ticks: n} = game) do
     %{game | message_ticks: n - 1}
+  end
+
+  # Approximate 10 advances per second (matches the default slider
+  # position 6 / 100ms per tick). Matches the reference's
+  # `SoundHasTimeElapsed(BoardTimeHsec, 100)` gate but driven off our
+  # advance counter instead of wall clock.
+  @ticks_per_second 10
+
+  defp tick_board_time(%{board: %Board{time_limit: lim}} = game)
+       when is_integer(lim) and lim > 0 do
+    if game.player.health <= 0 do
+      game
+    else
+      ticks = game.board_time_ticks + 1
+
+      if ticks >= @ticks_per_second do
+        advance_board_time(game, ticks)
+      else
+        %{game | board_time_ticks: ticks}
+      end
+    end
+  end
+
+  defp tick_board_time(game), do: game
+
+  defp advance_board_time(game, _ticks) do
+    new_sec = game.board_time_sec + 1
+    lim = game.board.time_limit
+
+    game = %{game | board_time_sec: new_sec, board_time_ticks: 0}
+
+    cond do
+      new_sec == lim - 10 ->
+        display_message(game, 200, "Running out of time!")
+
+      new_sec > lim ->
+        damage_player(game, 10)
+
+      true ->
+        game
+    end
   end
 
   # ZZT ticks stat i when (stat_tick mod cycle) == (i mod cycle). That

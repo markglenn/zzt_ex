@@ -78,15 +78,21 @@ defmodule ZztEx.Zzt.Sidebar do
     * `:paused?` — overlay "Pausing..." at row 6, matching the
       `VideoWriteText(64, 5, $1F, 'Pausing...')` in the reference's
       paused branch (GAME.PAS:1533).
+    * `:time_remaining` — when > 0, draw a "Time: NNN" row at row 7
+      per GAME.PAS:1097-1100.
   """
   @spec rows(map(), keyword()) :: [[cell()]]
   def rows(state, opts \\ []) do
     rows = base_rows(state)
 
-    if Keyword.get(opts, :paused?, false) do
-      List.replace_at(rows, 5, pausing_row())
-    else
-      rows
+    rows =
+      if Keyword.get(opts, :paused?, false),
+        do: List.replace_at(rows, 5, pausing_row()),
+        else: rows
+
+    case Keyword.get(opts, :time_remaining, 0) do
+      n when is_integer(n) and n > 0 -> List.replace_at(rows, 6, time_row(n))
+      _ -> rows
     end
   end
 
@@ -127,6 +133,16 @@ defmodule ZztEx.Zzt.Sidebar do
   # in the source literal so we keep it too.
   defp pausing_row do
     paint(blank_row(), 5, "Pausing...", @white, @blue)
+  end
+
+  # `'   Time:'` at col 64 + `numStr + ' '` at col 72 per
+  # GAME.PAS:1097-1100. Colon lands at col 12 like the stat rows.
+  defp time_row(remaining) do
+    label_col = @colon_col - String.length("Time:") + 1
+
+    blank_row()
+    |> paint(label_col, "Time:", @yellow, @blue)
+    |> paint(@value_col, Integer.to_string(remaining), @yellow, @blue)
   end
 
   defp cell(char_byte, fg, bg), do: {Cp437.char(char_byte), fg, bg, false}

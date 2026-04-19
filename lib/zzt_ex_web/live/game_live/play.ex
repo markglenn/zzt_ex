@@ -118,6 +118,13 @@ defmodule ZztExWeb.GameLive.Play do
   defp pause_key?("P"), do: true
   defp pause_key?(_), do: false
 
+  defp time_remaining(%{board: %{time_limit: lim}, board_time_sec: elapsed})
+       when is_integer(lim) and lim > 0 do
+    max(0, lim - elapsed)
+  end
+
+  defp time_remaining(_), do: 0
+
   defp shift_pressed?(%{"shiftKey" => true}), do: true
   defp shift_pressed?(%{"shift_key" => true}), do: true
   defp shift_pressed?(_), do: false
@@ -198,7 +205,13 @@ defmodule ZztExWeb.GameLive.Play do
         torch_ticks: game.player.torch_ticks
       )
     )
-    |> assign(:sidebar_rows, Sidebar.rows(game.player, paused?: game.paused?))
+    |> assign(
+      :sidebar_rows,
+      Sidebar.rows(game.player,
+        paused?: game.paused?,
+        time_remaining: time_remaining(game)
+      )
+    )
   end
 
   @impl true
@@ -262,14 +275,6 @@ defmodule ZztExWeb.GameLive.Play do
               {@speed} <span class="text-base-content/50">({interval_ms(@speed)}ms)</span>
             </span>
           </form>
-        </div>
-
-        <div
-          :if={@board.message != ""}
-          class="w-full max-w-xl rounded-box border border-base-300 bg-base-200 p-4"
-        >
-          <h2 class="text-sm font-semibold mb-1">Board Message</h2>
-          <p class="font-mono text-xs whitespace-pre-wrap">{@board.message}</p>
         </div>
 
         <.scroll_window :if={@game.pending_scroll} scroll={@game.pending_scroll} />

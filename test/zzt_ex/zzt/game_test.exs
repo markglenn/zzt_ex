@@ -497,6 +497,57 @@ defmodule ZztEx.Zzt.GameTest do
     end
   end
 
+  describe "board time limit" do
+    defp timed_game(time_limit) do
+      tiles =
+        for y <- 1..Board.height(), x <- 1..Board.width(), into: %{} do
+          {{x, y}, {0, 0x0F}}
+        end
+        |> Map.put({10, 10}, {4, 0x1F})
+
+      %Game{
+        board: %Board{title: "T", time_limit: time_limit},
+        tiles: tiles,
+        stats: [%Stat{x: 10, y: 10, cycle: 1}],
+        player: base_player_state([]),
+        stat_tick: 0
+      }
+    end
+
+    test "advances seconds after 10 ticks and flashes a warning at limit-10" do
+      game = timed_game(15)
+
+      game = Enum.reduce(1..10, game, fn _, g -> Game.advance(g) end)
+      # 10 ticks → 1 second elapsed.
+      assert game.board_time_sec == 1
+      assert game.board_time_ticks == 0
+
+      # Push to 5 seconds elapsed (time_limit - 10 = 5).
+      game = Enum.reduce(1..40, game, fn _, g -> Game.advance(g) end)
+      assert game.board_time_sec == 5
+      assert game.message == "Running out of time!"
+    end
+
+    test "expiring damages the player and resets the timer" do
+      game = timed_game(1) |> Map.put(:board_time_sec, 1)
+
+      # One more second pushes us over the limit.
+      game = Enum.reduce(1..10, game, fn _, g -> Game.advance(g) end)
+
+      assert game.player.health == 90
+      # damage_player reset the timer.
+      assert game.board_time_sec == 0
+    end
+
+    test "boards without a time limit are exempt" do
+      game = timed_game(0)
+      final = Enum.reduce(1..30, game, fn _, g -> Game.advance(g) end)
+
+      assert final.board_time_sec == 0
+      assert final.message == nil
+    end
+  end
+
   describe "damage_player/2 with restart_on_zap?" do
     defp zap_board_game(opts) do
       {sx, sy} = Keyword.get(opts, :start_xy, {5, 5})

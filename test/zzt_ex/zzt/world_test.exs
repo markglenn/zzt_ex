@@ -46,4 +46,28 @@ defmodule ZztEx.Zzt.WorldTest do
   test "rejects truncated input" do
     assert {:error, :truncated_header} = World.parse(<<0, 1, 2>>)
   end
+
+  test "stats with negative bound inherit code from the referenced stat" do
+    alias ZztEx.Zzt.Stat
+
+    shared = "@spawner\r:touch\r#end\r"
+
+    # Two stats: an object with code (stat 1) and another stat
+    # pointing at it via `bound: -1` with no code body of its own.
+    stats = [
+      %Stat{x: 30, y: 13},
+      %Stat{x: 20, y: 13, bound: byte_size(shared), code: shared},
+      %Stat{x: 21, y: 13, bound: -1}
+    ]
+
+    binary = ZztFixture.world(stats: stats)
+    {:ok, world} = World.parse(binary)
+    [board] = world.boards
+
+    [_player, source, shared_stat] = board.stats
+    assert source.code == shared
+    # Post-pass normalises bound back to the absolute length.
+    assert shared_stat.bound == byte_size(shared)
+    assert shared_stat.code == shared
+  end
 end

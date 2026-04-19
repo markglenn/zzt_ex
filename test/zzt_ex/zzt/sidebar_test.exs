@@ -117,6 +117,20 @@ defmodule ZztEx.Zzt.SidebarTest do
     end
   end
 
+  test "time_remaining > 0 inserts a 'Time: N' row at row 7" do
+    rows = Sidebar.rows(world(), time_remaining: 42)
+    text = cell_string(Enum.at(rows, 6))
+
+    # Colon lands at col 12 (idx 11), value starts at col 13 (idx 12).
+    assert String.slice(text, 7, 5) == "Time:"
+    assert String.slice(text, 12, 2) == "42"
+  end
+
+  test "time_remaining of zero keeps row 7 blank" do
+    rows = Sidebar.rows(world())
+    refute cell_string(Enum.at(rows, 6)) =~ "Time:"
+  end
+
   test "paused? overlays 'Pausing...' at row 6" do
     rows = Sidebar.rows(world(), paused?: true)
     text = cell_string(Enum.at(rows, 5))

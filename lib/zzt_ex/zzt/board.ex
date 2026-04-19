@@ -96,12 +96,37 @@ defmodule ZztEx.Zzt.Board do
          enter_x: props.enter_x,
          enter_y: props.enter_y,
          time_limit: props.time_limit,
-         stats: stats
+         stats: resolve_bound_refs(stats)
        }}
     end
   end
 
   defp parse_body(_), do: {:error, :truncated_board_body}
+
+  # BoardOpen's second pass (GAME.PAS:261-264): any stat loaded with
+  # `DataLen < 0` reuses the program of stat `-DataLen`. In our struct
+  # that's `bound` + `code`. We normalise so callers only ever see a
+  # non-negative bound and a real code binary — matching what the
+  # reference's post-load pass leaves behind.
+  defp resolve_bound_refs(stats) do
+    stats_tuple = List.to_tuple(stats)
+
+    Enum.map(stats, fn stat ->
+      if stat.bound < 0 do
+        case fetch_shared(stats_tuple, -stat.bound) do
+          nil -> stat
+          src -> %{stat | code: src.code, bound: byte_size(src.code)}
+        end
+      else
+        stat
+      end
+    end)
+  end
+
+  defp fetch_shared(stats_tuple, idx) when idx >= 0 and idx < tuple_size(stats_tuple),
+    do: elem(stats_tuple, idx)
+
+  defp fetch_shared(_, _), do: nil
 
   defp parse_properties(<<
          max_shots,

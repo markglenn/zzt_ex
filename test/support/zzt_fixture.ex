@@ -118,6 +118,14 @@ defmodule ZztEx.Test.ZztFixture do
   end
 
   defp encode_stat(%Stat{} = s) do
+    # Prefer an explicit `bound` so tests can inject the negative
+    # "share code with stat -bound" form the reference supports.
+    bound =
+      cond do
+        s.bound != 0 -> s.bound
+        true -> byte_size(s.code)
+      end
+
     <<
       s.x,
       s.y,
@@ -133,7 +141,7 @@ defmodule ZztEx.Test.ZztFixture do
       s.under_color,
       0::little-32,
       s.instruction::little-signed-16,
-      byte_size(s.code)::little-signed-16
+      bound::little-signed-16
     >> <> :binary.copy(<<0>>, 8) <> s.code
   end
 
