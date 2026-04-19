@@ -202,7 +202,8 @@ defmodule ZztExWeb.GameLive.Play do
         title_screen?: game.board_index == 0,
         message: game.message && {game.message, game.message_ticks},
         dark?: game.board && game.board.dark?,
-        torch_ticks: game.player.torch_ticks
+        torch_ticks: game.player.torch_ticks,
+        paused?: game.paused?
       )
     )
     |> assign(

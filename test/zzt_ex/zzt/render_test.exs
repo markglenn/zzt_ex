@@ -146,6 +146,30 @@ defmodule ZztEx.Zzt.RenderTest do
     }
   end
 
+  describe "paused player blink" do
+    test "paused? sets blink on the player cell" do
+      tiles = put_tile(empty_tiles(), 30, 13, {4, 0x1F})
+      {:ok, world} = World.parse(ZztFixture.world(tiles: tiles, player_xy: {30, 13}))
+      [board] = world.boards
+
+      rows = Render.rows(board, paused?: true)
+
+      {_char, _fg, _bg, blink?} = cell_at(rows, 30, 13)
+      assert blink?
+    end
+
+    test "without paused? the player cell keeps its stored blink (none)" do
+      tiles = put_tile(empty_tiles(), 30, 13, {4, 0x1F})
+      {:ok, world} = World.parse(ZztFixture.world(tiles: tiles, player_xy: {30, 13}))
+      [board] = world.boards
+
+      rows = Render.rows(board)
+
+      {_char, _fg, _bg, blink?} = cell_at(rows, 30, 13)
+      refute blink?
+    end
+  end
+
   describe "dark rooms" do
     defp dark_scene(opts) do
       torch_ticks = Keyword.get(opts, :torch_ticks, 0)

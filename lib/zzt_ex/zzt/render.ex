@@ -74,6 +74,9 @@ defmodule ZztEx.Zzt.Render do
       (player, torch pickup, passage) which always show.
     * `:torch_ticks`    — remaining torch time; when > 0 the ellipse
       around the player stat is rendered normally.
+    * `:paused?`        — when true, mark the player cell as blinking
+      so the glyph flashes on/off at ~1.875 Hz, matching the
+      `pauseBlink` toggle at GAME.PAS:1519-1531.
   """
   @spec rows(Board.t(), keyword()) :: [[cell()]]
   def rows(%Board{} = board, opts \\ []) do
@@ -83,6 +86,7 @@ defmodule ZztEx.Zzt.Render do
     player_xy = player_position(board.stats)
     dark? = Keyword.get(opts, :dark?, false)
     torch_ticks = Keyword.get(opts, :torch_ticks, 0)
+    paused? = Keyword.get(opts, :paused?, false)
     grid = List.to_tuple(board.tiles)
 
     rows =
@@ -93,10 +97,17 @@ defmodule ZztEx.Zzt.Render do
           else
             {element, color} = tile_at(grid, x, y)
 
-            if dark? and darken?(element, x, y, player_xy, torch_ticks) do
-              {Cp437.char(@dark_char), 7, 0, false}
+            cell =
+              if dark? and darken?(element, x, y, player_xy, torch_ticks) do
+                {Cp437.char(@dark_char), 7, 0, false}
+              else
+                compute_cell(grid, x, y, element, color, Map.get(stats_by_xy, {x, y}), tick)
+              end
+
+            if paused? and player_xy == {x, y} do
+              blink_cell(cell)
             else
-              compute_cell(grid, x, y, element, color, Map.get(stats_by_xy, {x, y}), tick)
+              cell
             end
           end
         end
@@ -104,6 +115,8 @@ defmodule ZztEx.Zzt.Render do
 
     overlay_message(rows, Keyword.get(opts, :message))
   end
+
+  defp blink_cell({char, fg, bg, _blink}), do: {char, fg, bg, true}
 
   # VisibleInDark elements (player/torch pickup/passage) are never darkened;
   # otherwise we darken unless the torch is lit and the cell sits inside
