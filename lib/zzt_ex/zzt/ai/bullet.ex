@@ -55,10 +55,14 @@ defmodule ZztEx.Zzt.AI.Bullet do
         |> try_move(stat_idx, false)
 
       damages?(element, stat.p1) ->
+        # Reference's BoardAttack: kill the attacker (bullet) first,
+        # then damage the defender. Reversing the order would shift
+        # `stat_idx` if `damage_tile` removed a stat at a lower index
+        # (e.g. shooting a monster whose stat sits before the bullet).
         game
         |> add_score(element)
-        |> Game.damage_tile(tx, ty)
         |> Game.remove_stat(stat_idx)
+        |> Game.damage_tile(tx, ty)
 
       first_try? ->
         check_perpendicular_ricochet(game, stat_idx, stat)

@@ -101,6 +101,33 @@ defmodule ZztEx.Zzt.AI.BulletTest do
     assert final.player.health == 90
   end
 
+  test "hitting a monster whose stat index is lower than the bullet's" do
+    # Regression: ordering was `damage_tile` then `remove_stat`, which
+    # shifted stat_idx down by one and made `remove_stat(old_idx)` hit
+    # the end of the list. Here the lion sits at a lower index than
+    # the bullet so the bullet's idx shifts on the monster's removal.
+    lion = %Stat{x: 11, y: 10, cycle: 3, p1: 0}
+
+    game =
+      AIFixture.game_with(
+        player_xy: {30, 30},
+        monster: bullet_stat(10, 10, 1, 0, 0),
+        element: @bullet
+      )
+
+    # Re-order: player, lion, bullet — bullet now at idx 2, lion at 1.
+    [player_stat, bullet_stat] = game.stats
+    tiles = Map.put(game.tiles, {11, 10}, {41, 0x0C})
+    game = %{game | tiles: tiles, stats: [player_stat, lion, bullet_stat]}
+
+    final = Bullet.tick(game, 2)
+
+    assert Map.fetch!(final.tiles, {11, 10}) |> elem(0) == 0
+    assert final.player.score == 1
+    # Bullet and lion both gone; only the player remains.
+    assert length(final.stats) == 1
+  end
+
   test "breakable walls are destroyed regardless of source" do
     game =
       AIFixture.game_with(
