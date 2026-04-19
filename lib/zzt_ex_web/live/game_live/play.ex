@@ -12,16 +12,20 @@ defmodule ZztExWeb.GameLive.Play do
   # ZZT's `TickTimeDuration := TickSpeed * 2` is in hundredths of a
   # second — the reference drives `TickTimeCounter` through
   # `SoundHasTimeElapsed` (SOUNDS.PAS:156), which compares hSec units
-  # pulled from the reprogrammed PIT handler, not raw 18.2 Hz BIOS
-  # ticks. ZZT's slider shows 1..9 with 1 = F (fast) and 9 = S (slow);
-  # internally value = slider - 1 so the ms-per-round formula is
-  # `(slider - 1) * 20`. Default slider position is 5, matching ZZT's
-  # startup `TickSpeed := 4`. We clamp the fastest step to 10ms so
-  # LiveView isn't hammering the socket harder than the browser can
-  # render the board diff.
-  @default_speed 5
+  # from the BIOS timer hook, not raw 18.2 Hz ticks. ZZT's slider
+  # shows 1..9 with 1 = F (fast) and 9 = S (slow); internal value =
+  # slider - 1, so ms-per-round = `(slider - 1) * 20`.
+  #
+  # ZZT ships with TickSpeed := 4 (slider 5, 80ms). We default one
+  # notch slower (slider 6, 100ms) because stock ZZT's 80ms loop
+  # assumed direct VGA framebuffer writes; over a LiveView socket
+  # each stat pass is a serialized diff, and that hundred-millisecond
+  # budget gives the browser enough room to render without the game
+  # feeling racey. Fastest step clamps to 20ms so we don't flood the
+  # socket if the slider is dragged all the way down.
+  @default_speed 6
 
-  defp interval_ms(speed), do: max((speed - 1) * 20, 10)
+  defp interval_ms(speed), do: max((speed - 1) * 20, 20)
 
   @impl true
   def mount(%{"slug" => slug}, _session, socket) do
