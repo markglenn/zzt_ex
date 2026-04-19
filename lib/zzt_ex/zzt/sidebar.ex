@@ -52,7 +52,10 @@ defmodule ZztEx.Zzt.Sidebar do
   @desc_col 7
   @arrow_col 8
   @word_col 14
-  @torch_bar_col 17
+  # Reference draws the torch gauge at VGA cols 75..78 on the torch
+  # row (GAME.PAS:1124). With the sidebar anchored at VGA col 60 those
+  # are sidebar-local 1-indexed cols 16..19.
+  @torch_bar_col 16
   @torch_bar_len 4
 
   @torch_duration 200
