@@ -96,7 +96,8 @@ defmodule ZztEx.Zzt.Game do
         energizer_ticks: world.energizer_cycles
       },
       stat_tick: 0,
-      flags: world.flags |> Enum.reject(&(&1 == "")) |> Enum.map(&String.upcase/1) |> MapSet.new(),
+      flags:
+        world.flags |> Enum.reject(&(&1 == "")) |> Enum.map(&String.upcase/1) |> MapSet.new(),
       start_player_x: start_x(board, player_stat),
       start_player_y: start_y(board, player_stat)
     }
