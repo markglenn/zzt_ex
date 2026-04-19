@@ -605,6 +605,8 @@ defmodule ZztEx.Zzt.Game do
       :lion -> AI.Lion.tick(game, cur_idx)
       :tiger -> AI.Tiger.tick(game, cur_idx)
       :bullet -> AI.Bullet.tick(game, cur_idx)
+      :star -> AI.Star.tick(game, cur_idx)
+      :spinning_gun -> AI.SpinningGun.tick(game, cur_idx)
       :bear -> AI.Bear.tick(game, cur_idx)
       :ruffian -> AI.Ruffian.tick(game, cur_idx)
       :slime -> AI.Slime.tick(game, cur_idx)
