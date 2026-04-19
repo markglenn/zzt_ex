@@ -82,6 +82,9 @@ defmodule ZztExWeb.GameLive.Play do
       socket.assigns.game.pending_scroll ->
         handle_scroll_key(key, socket)
 
+      ZztEx.Zzt.Game.game_over?(socket.assigns.game) ->
+        handle_game_over_key(key, socket)
+
       step = arrow_step(key) ->
         {dx, dy} = step
 
@@ -109,6 +112,12 @@ defmodule ZztExWeb.GameLive.Play do
     game = Game.dismiss_scroll(socket.assigns.game)
     {:noreply, refresh_rows(socket, game)}
   end
+
+  # Post-death: only ESC responds. The reference's dead state is
+  # effectively a dead-end — the original closes the world with the
+  # high-score prompt, we just bounce back to the library.
+  defp handle_game_over_key("Escape", socket), do: {:noreply, push_navigate(socket, to: ~p"/")}
+  defp handle_game_over_key(_key, socket), do: {:noreply, socket}
 
   defp torch_key?("t"), do: true
   defp torch_key?("T"), do: true

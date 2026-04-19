@@ -187,7 +187,30 @@ defmodule ZztEx.Zzt.Game do
     |> decrement_message()
     |> tick_board_time()
     |> tick_stats()
+    |> maybe_game_over_message()
   end
+
+  @doc """
+  True when the player is dead. Input handlers use this to suppress
+  movement/shoot/torch/pause the same way `ElementPlayerTick` zeroes
+  `InputDeltaX/Y` when `World.Info.Health <= 0` (ELEMENTS.PAS:1340-1350).
+  """
+  @spec game_over?(t()) :: boolean()
+  def game_over?(%__MODULE__{player: %{health: h}}), do: h <= 0
+
+  # Keep "Game over - Press ESCAPE" parked on the bottom row while the
+  # player is dead. Reference re-queues it each round only when no
+  # message timer is active (the `GetStatIdAt(0,0) = -1` check), so any
+  # transient message like "Ouch!" still gets its moment first.
+  defp maybe_game_over_message(%__MODULE__{message_ticks: 0} = game) do
+    if game_over?(game) do
+      display_message(game, 32_000, " Game over  -  Press ESCAPE")
+    else
+      game
+    end
+  end
+
+  defp maybe_game_over_message(game), do: game
 
   @torch_duration 200
 
@@ -200,6 +223,9 @@ defmodule ZztEx.Zzt.Game do
   @spec light_torch(t()) :: t()
   def light_torch(%__MODULE__{} = game) do
     cond do
+      game_over?(game) ->
+        game
+
       game.player.torch_ticks > 0 ->
         game
 

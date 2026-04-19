@@ -604,6 +604,50 @@ defmodule ZztEx.Zzt.GameTest do
     end
   end
 
+  describe "game over" do
+    test "game_over?/1 flips when health hits zero" do
+      game = blank_game(player_xy: {10, 10})
+      refute Game.game_over?(game)
+
+      dead = Map.update!(game, :player, &%{&1 | health: 0})
+      assert Game.game_over?(dead)
+    end
+
+    test "advance/1 parks the game over message once existing messages clear" do
+      game =
+        blank_game(player_xy: {10, 10})
+        |> Map.update!(:player, &%{&1 | health: 0})
+        |> Map.put(:message, nil)
+        |> Map.put(:message_ticks, 0)
+
+      game = Game.advance(game)
+      assert game.message == " Game over  -  Press ESCAPE"
+      # Huge count so any transient advance keeps showing it.
+      assert game.message_ticks > 1000
+    end
+
+    test "advance/1 leaves transient messages alone until they expire" do
+      game =
+        blank_game(player_xy: {10, 10})
+        |> Map.update!(:player, &%{&1 | health: 0})
+        |> Map.put(:message, "Ouch!")
+        |> Map.put(:message_ticks, 5)
+
+      game = Game.advance(game)
+      # Decremented, not replaced.
+      assert game.message == "Ouch!"
+      assert game.message_ticks == 4
+    end
+
+    test "light_torch is a no-op after death" do
+      game =
+        blank_game(player_xy: {10, 10}, player: %{torches: 3})
+        |> Map.update!(:player, &%{&1 | health: 0})
+
+      assert Game.light_torch(game) == game
+    end
+  end
+
   describe "pause" do
     test "toggle_pause/1 flips the flag and advance no-ops while paused" do
       game = blank_game(player_xy: {10, 10})
