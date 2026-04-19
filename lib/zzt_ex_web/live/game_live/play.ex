@@ -132,7 +132,14 @@ defmodule ZztExWeb.GameLive.Play do
   defp handle_title_key(key, socket) do
     cond do
       key in ["p", "P"] ->
-        game = Game.enter_board(socket.assigns.game, socket.assigns.world.current_board)
+        # Reference sets `GamePaused := true` immediately before the
+        # gameplay loop (GAME.PAS:1680), so the first arrow press
+        # doubles as "resume play".
+        game =
+          socket.assigns.game
+          |> Game.enter_board(socket.assigns.world.current_board)
+          |> Map.put(:paused?, true)
+
         {:noreply, refresh_rows(socket, game)}
 
       key in ["w", "W", "Escape"] ->
