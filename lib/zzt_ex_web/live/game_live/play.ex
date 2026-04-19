@@ -9,24 +9,19 @@ defmodule ZztExWeb.GameLive.Play do
   alias ZztEx.Games
   alias ZztEx.Zzt.{Board, Game, Render, ScrollRender, Sidebar}
 
-  # ZZT's GameSpeeds table: the number of 18.2 Hz BIOS ticks waited between
-  # stat passes, per in-game speed setting 1..9. Speed 4 is the default,
-  # matching ZZT's default game speed (~220 ms/stat cycle). At speeds 8-9
-  # the delay is 0 in stock ZZT; we clamp to one BIOS tick so LiveView
-  # isn't re-rendering 1500 spans 60 times a second.
-  @speed_bios_ticks %{
-    1 => 7,
-    2 => 6,
-    3 => 5,
-    4 => 4,
-    5 => 3,
-    6 => 2,
-    7 => 1,
-    8 => 1,
-    9 => 1
-  }
+  # ZZT's `TickTimeDuration := TickSpeed * 2` is in hundredths of a
+  # second — the reference drives `TickTimeCounter` through
+  # `SoundHasTimeElapsed` (SOUNDS.PAS:156), which compares hSec units
+  # pulled from the reprogrammed PIT handler, not raw 18.2 Hz BIOS
+  # ticks. ZZT's slider shows 1..9 with 1 = F (fast) and 9 = S (slow);
+  # internally value = slider - 1 so the ms-per-round formula is
+  # `(slider - 1) * 20`. Default slider position is 5, matching ZZT's
+  # startup `TickSpeed := 4`. We clamp the fastest step to 10ms so
+  # LiveView isn't hammering the socket harder than the browser can
+  # render the board diff.
+  @default_speed 5
 
-  @default_speed 4
+  defp interval_ms(speed), do: max((speed - 1) * 20, 10)
 
   @impl true
   def mount(%{"slug" => slug}, _session, socket) do
@@ -150,8 +145,6 @@ defmodule ZztExWeb.GameLive.Play do
     {:noreply, refresh_rows(socket, game)}
   end
 
-  defp interval_ms(speed), do: Map.fetch!(@speed_bios_ticks, speed) * 55
-
   defp select_board(%{assigns: %{world: world, game: game}} = socket, index) do
     last = length(world.boards) - 1
     clamped = index |> max(0) |> min(last)
@@ -233,7 +226,7 @@ defmodule ZztExWeb.GameLive.Play do
           <.screen board_rows={@board_rows} sidebar_rows={@sidebar_rows} />
 
           <form phx-change="set-speed" class="mt-3 flex items-center gap-3 text-sm">
-            <label for="speed" class="font-mono">Speed</label>
+            <label for="speed" class="font-mono">Speed F</label>
             <input
               type="range"
               name="speed"
@@ -244,7 +237,8 @@ defmodule ZztExWeb.GameLive.Play do
               value={@speed}
               class="w-48 accent-primary"
             />
-            <span class="font-mono w-16">
+            <label class="font-mono">S</label>
+            <span class="font-mono w-20 text-right">
               {@speed} <span class="text-base-content/50">({interval_ms(@speed)}ms)</span>
             </span>
           </form>
