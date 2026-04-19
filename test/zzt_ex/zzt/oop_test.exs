@@ -105,6 +105,41 @@ defmodule ZztEx.Zzt.OopTest do
       assert {obj.x, obj.y} == {11, 10}
     end
 
+    test "success skips the rest of the line so the fail label doesn't leak" do
+      # Regression for the bank-vault bug: after a successful #try, the
+      # trailing word (fail) and subsequent text lines should not end
+      # up in the scroll. Only "vault open!" should show, NOT " fail".
+      code =
+        "#try e fail\r" <>
+          "vault open!\r" <>
+          "#end\r" <>
+          ":fail\r" <>
+          "combination wrong!\r" <>
+          "#end\r"
+
+      game = build(code, object_xy: {10, 10})
+      # Tick 1: `#try e fail` succeeds, halts. Tick 2: reads the text
+      # line and `#end`, emits the scroll.
+      final = game |> Oop.tick(1) |> Oop.tick(1)
+
+      assert final.pending_scroll.lines == ["vault open!"]
+    end
+
+    test "blocked: jumps to :fail, shows only the failure text" do
+      code =
+        "#try e fail\r" <>
+          "vault open!\r" <>
+          "#end\r" <>
+          ":fail\r" <>
+          "combination wrong!\r" <>
+          "#end\r"
+
+      game = build(code, object_xy: {10, 10}, walls: [{11, 10}])
+      final = Oop.tick(game, 1)
+
+      assert final.pending_scroll.lines == ["combination wrong!"]
+    end
+
     test "falls through to the #send when blocked" do
       code = "#try e fail\r'unreachable\r#end\r:fail\r#end\r"
       game = build(code, object_xy: {10, 10}, walls: [{11, 10}])

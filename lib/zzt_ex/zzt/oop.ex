@@ -66,9 +66,13 @@ defmodule ZztEx.Zzt.Oop do
   # ---- Main execute loop -------------------------------------------------
 
   defp execute(game, stat_idx, position) do
+    stat = Enum.at(game.stats, stat_idx)
+
     state = %{
       game: game,
       stat_idx: stat_idx,
+      code: stat.code,
+      code_size: byte_size(stat.code),
       position: position,
       last_position: position,
       ops: 0,
@@ -208,13 +212,12 @@ defmodule ZztEx.Zzt.Oop do
   defp handle_command(state) do
     state = read_command(state)
 
-    cond do
-      state.stop_running -> state
-      state.end_of_program -> state
-      state.replace_stat -> state
-      state.line_finished -> skip_line(state)
-      true -> state
-    end
+    # Reference runs `OopSkipLine` unconditionally when lineFinished is
+    # true — even when stopRunning is set. Otherwise trailing args like
+    # the label in `#try e fail` leak into the next tick's parser (and
+    # the text accumulator, which is how both "fail" and "vault open"
+    # messages end up on-screen).
+    if state.line_finished, do: skip_line(state), else: state
   end
 
   # Read one command word and dispatch. Commands that continue reading
@@ -253,12 +256,10 @@ defmodule ZztEx.Zzt.Oop do
   end
 
   defp peek_char(state) do
-    code = stat_code(state.game, state.stat_idx)
-
-    if state.position >= byte_size(code) do
+    if state.position >= state.code_size do
       {0, state}
     else
-      {:binary.at(code, state.position), state}
+      {:binary.at(state.code, state.position), state}
     end
   end
 
@@ -411,12 +412,17 @@ defmodule ZztEx.Zzt.Oop do
 
   defp cmd_zap(state) do
     {label, state} = read_word(state)
-    %{state | game: zap_label(state.game, state.stat_idx, label)}
+    refresh_code(%{state | game: zap_label(state.game, state.stat_idx, label)})
   end
 
   defp cmd_restore(state) do
     {label, state} = read_word(state)
-    %{state | game: restore_label(state.game, state.stat_idx, label)}
+    refresh_code(%{state | game: restore_label(state.game, state.stat_idx, label)})
+  end
+
+  defp refresh_code(state) do
+    code = Enum.at(state.game.stats, state.stat_idx).code
+    %{state | code: code, code_size: byte_size(code)}
   end
 
   defp cmd_lock(state, value) do
@@ -535,7 +541,7 @@ defmodule ZztEx.Zzt.Oop do
         other = Enum.at(state.game.stats, other_idx)
         stat = current_stat(state)
         state = update_stat(state, %{stat | code: other.code})
-        %{state | position: 0}
+        %{state | position: 0, code: other.code, code_size: byte_size(other.code)}
     end
   end
 
@@ -599,16 +605,12 @@ defmodule ZztEx.Zzt.Oop do
   # ---- Low-level char/word readers --------------------------------------
 
   defp read_char(state) do
-    if state.position >= byte_size(state.game |> stat_code(state.stat_idx)) do
+    if state.position >= state.code_size do
       {0, state}
     else
-      byte = :binary.at(stat_code(state.game, state.stat_idx), state.position)
+      byte = :binary.at(state.code, state.position)
       {byte, %{state | position: state.position + 1}}
     end
-  end
-
-  defp stat_code(game, stat_idx) do
-    Enum.at(game.stats, stat_idx).code
   end
 
   defp read_word(state) do
