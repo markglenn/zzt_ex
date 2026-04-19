@@ -117,6 +117,23 @@ defmodule ZztEx.Zzt.SidebarTest do
     end
   end
 
+  test "paused? overlays 'Pausing...' at row 6" do
+    rows = Sidebar.rows(world(), paused?: true)
+    text = cell_string(Enum.at(rows, 5))
+
+    assert text =~ "Pausing..."
+    # "P" lands at col 5 (idx 4) with fg white on bg blue per
+    # VideoWriteText(64, 5, $1F, ...).
+    {char, fg, bg, _blink} = Enum.at(Enum.at(rows, 5), 4)
+    assert char == "P"
+    assert {fg, bg} == {15, 1}
+  end
+
+  test "without :paused? the row 6 stays blank" do
+    rows = Sidebar.rows(world())
+    refute cell_string(Enum.at(rows, 5)) =~ "Pausing"
+  end
+
   test "B (Be quiet) and P (Pause) use a cyan key box instead of grey" do
     rows = Sidebar.rows(world())
     be_quiet_row = Enum.at(rows, 15)

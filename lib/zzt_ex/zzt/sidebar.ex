@@ -72,9 +72,25 @@ defmodule ZztEx.Zzt.Sidebar do
   `:score`). A `%World{}` matches out of the box; the runtime
   `ZztEx.Zzt.Game.player_state()` also matches, so the same renderer
   works for the world header and for live play.
+
+  Options:
+
+    * `:paused?` — overlay "Pausing..." at row 6, matching the
+      `VideoWriteText(64, 5, $1F, 'Pausing...')` in the reference's
+      paused branch (GAME.PAS:1533).
   """
-  @spec rows(map()) :: [[cell()]]
-  def rows(state) do
+  @spec rows(map(), keyword()) :: [[cell()]]
+  def rows(state, opts \\ []) do
+    rows = base_rows(state)
+
+    if Keyword.get(opts, :paused?, false) do
+      List.replace_at(rows, 5, pausing_row())
+    else
+      rows
+    end
+  end
+
+  defp base_rows(state) do
     # Layout mirrors GameDrawSidebar (GAME.PAS:1420), reference row
     # numbering 0..24 → our 1..25. Stats start at row 8 (ref row 7).
     [
@@ -104,6 +120,13 @@ defmodule ZztEx.Zzt.Sidebar do
       keybind_row(?Q, "Quit"),
       blank_row()
     ]
+  end
+
+  # Reference writes " Pausing..." at VGA col 64 row 5 with $1F (white
+  # on blue) — sidebar-local 1-indexed col 5. The leading space lives
+  # in the source literal so we keep it too.
+  defp pausing_row do
+    paint(blank_row(), 5, "Pausing...", @white, @blue)
   end
 
   defp cell(char_byte, fg, bg), do: {Cp437.char(char_byte), fg, bg, false}

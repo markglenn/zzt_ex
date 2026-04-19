@@ -128,6 +128,32 @@ defmodule ZztEx.Zzt.AI.BulletTest do
     assert length(final.stats) == 1
   end
 
+  test "dying against an object sends :SHOT which runs inline" do
+    code = "@obj\r:SHOT\r#set got_shot\r#end\r"
+    obj = %Stat{x: 11, y: 10, cycle: 3, code: code}
+
+    game =
+      AIFixture.game_with(
+        player_xy: {30, 30},
+        monster: bullet_stat(10, 10, 1, 0, 0),
+        element: @bullet
+      )
+
+    # Object tile at (11, 10) blocks the bullet — bullet dies and
+    # :SHOT should run during this very tick.
+    game = %{
+      game
+      | tiles: Map.put(game.tiles, {11, 10}, {36, 0x0F}),
+        stats: game.stats ++ [obj]
+    }
+
+    final = ZztEx.Zzt.AI.Bullet.tick(game, 1)
+
+    assert ZztEx.Zzt.Game.flag?(final, "got_shot")
+    # Bullet is gone, object still there.
+    assert Map.fetch!(final.tiles, {11, 10}) |> elem(0) == 36
+  end
+
   test "breakable walls are destroyed regardless of source" do
     game =
       AIFixture.game_with(

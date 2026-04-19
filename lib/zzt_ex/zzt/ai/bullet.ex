@@ -10,22 +10,23 @@ defmodule ZztEx.Zzt.AI.Bullet do
       target's ScoreValue, damage the target, bullet dies.
     * Otherwise, check the two tiles perpendicular to the bullet's path:
       a Ricochet on one side redirects the bullet 90° and retries; if
-      neither is a Ricochet the bullet dies.
+      neither is a Ricochet the bullet dies. When the blocker is an
+      Object or Scroll the bullet's death also dispatches `:SHOT` on
+      that stat's OOP program (ELEMENTS.PAS:382-385).
 
   `stat.p1` holds the shot source (0 = player, ≠0 = enemy). The
   destructible-match rule keeps player bullets from killing the player
   and keeps enemy bullets from friendly-firing other monsters.
-
-  Skipped for now: the reference's `OopSend(:shot, ...)` to Objects and
-  Scrolls, which needs the ZZT-OOP interpreter.
   """
 
-  alias ZztEx.Zzt.{Element, Game, Stat}
+  alias ZztEx.Zzt.{Element, Game, Oop, Stat}
 
   @water 19
   @breakable 23
   @ricochet 32
   @player 4
+  @scroll 10
+  @object 36
 
   @spec tick(Game.t(), non_neg_integer()) :: Game.t()
   def tick(%Game{} = game, stat_idx), do: try_move(game, stat_idx, true)
@@ -65,10 +66,10 @@ defmodule ZztEx.Zzt.AI.Bullet do
         |> Game.damage_tile(tx, ty)
 
       first_try? ->
-        check_perpendicular_ricochet(game, stat_idx, stat)
+        check_perpendicular_ricochet(game, stat_idx, stat, tx, ty)
 
       true ->
-        Game.remove_stat(game, stat_idx)
+        die_against(game, stat_idx, tx, ty)
     end
   end
 
@@ -76,7 +77,7 @@ defmodule ZztEx.Zzt.AI.Bullet do
   # at (X + StepY, Y + StepX) first and then the opposite side; a
   # Ricochet on either end reflects the bullet 90° with different sign
   # on each side so it continues away from the reflector.
-  defp check_perpendicular_ricochet(game, stat_idx, stat) do
+  defp check_perpendicular_ricochet(game, stat_idx, stat, tx, ty) do
     cw_x = stat.x + stat.step_y
     cw_y = stat.y + stat.step_x
     ccw_x = stat.x - stat.step_y
@@ -94,8 +95,32 @@ defmodule ZztEx.Zzt.AI.Bullet do
         |> try_move(stat_idx, false)
 
       true ->
-        Game.remove_stat(game, stat_idx)
+        die_against(game, stat_idx, tx, ty)
     end
+  end
+
+  # Bullet hit a wall — remove it, then (if the blocker was an Object
+  # or Scroll) dispatch `:SHOT` on that stat's program. Ports the tail
+  # of ElementBulletTick (ELEMENTS.PAS:380-385). The OOP handler runs
+  # inline so the touched object reacts this frame rather than
+  # waiting a full cycle.
+  defp die_against(game, stat_idx, tx, ty) do
+    game = Game.remove_stat(game, stat_idx)
+
+    case Game.tile_at(game, tx, ty) do
+      {elem, _} when elem in [@object, @scroll] ->
+        case find_stat_at(game.stats, tx, ty) do
+          nil -> game
+          idx -> game |> Oop.send(-idx, "SHOT") |> Oop.tick(idx)
+        end
+
+      _ ->
+        game
+    end
+  end
+
+  defp find_stat_at(stats, x, y) do
+    Enum.find_index(stats, fn s -> s.x == x and s.y == y end)
   end
 
   defp ricochet_at?(game, x, y) do

@@ -31,7 +31,8 @@ defmodule ZztEx.Zzt.Game do
             pending_scroll: nil,
             flags: MapSet.new(),
             message: nil,
-            message_ticks: 0
+            message_ticks: 0,
+            paused?: false
 
   @type player_state :: %{
           health: integer(),
@@ -57,7 +58,8 @@ defmodule ZztEx.Zzt.Game do
           pending_scroll: scroll() | nil,
           flags: MapSet.t(),
           message: String.t() | nil,
-          message_ticks: non_neg_integer()
+          message_ticks: non_neg_integer(),
+          paused?: boolean()
         }
 
   @doc """
@@ -114,12 +116,22 @@ defmodule ZztEx.Zzt.Game do
   end
 
   @doc """
+  Toggle the paused flag. Mirrors the `'P'` branch of
+  `ElementPlayerTick` — ignored while the player is dead since the
+  reference only sets `GamePaused := true` when health is positive.
+  """
+  @spec toggle_pause(t()) :: t()
+  def toggle_pause(%__MODULE__{player: %{health: h}} = game) when h <= 0, do: game
+  def toggle_pause(%__MODULE__{} = game), do: %{game | paused?: not game.paused?}
+
+  @doc """
   Advance one stat pass: increment `stat_tick`, decrement the energizer
   timer, then tick every eligible stat. A pending scroll modal pauses
   the world until `dismiss_scroll/1` clears it.
   """
   @spec advance(t()) :: t()
   def advance(%__MODULE__{pending_scroll: scroll} = game) when not is_nil(scroll), do: game
+  def advance(%__MODULE__{paused?: true} = game), do: game
 
   def advance(%__MODULE__{} = game) do
     %{game | stat_tick: game.stat_tick + 1}
@@ -446,6 +458,11 @@ defmodule ZztEx.Zzt.Game do
   """
   @spec move_player(t(), integer(), integer()) :: t()
   def move_player(%__MODULE__{} = game, dx, dy) do
+    # GamePlayLoop's paused branch resumes play on any successful
+    # arrow move (GAME.PAS:1561). Simplification: unpause on any
+    # direction press — the move will still bail if blocked.
+    game = if game.paused?, do: %{game | paused?: false}, else: game
+
     cond do
       game.player.health <= 0 ->
         game

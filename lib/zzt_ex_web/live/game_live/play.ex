@@ -97,6 +97,9 @@ defmodule ZztExWeb.GameLive.Play do
       torch_key?(key) ->
         {:noreply, refresh_rows(socket, Game.light_torch(socket.assigns.game))}
 
+      pause_key?(key) ->
+        {:noreply, refresh_rows(socket, Game.toggle_pause(socket.assigns.game))}
+
       true ->
         {:noreply, socket}
     end
@@ -110,6 +113,10 @@ defmodule ZztExWeb.GameLive.Play do
   defp torch_key?("t"), do: true
   defp torch_key?("T"), do: true
   defp torch_key?(_), do: false
+
+  defp pause_key?("p"), do: true
+  defp pause_key?("P"), do: true
+  defp pause_key?(_), do: false
 
   defp shift_pressed?(%{"shiftKey" => true}), do: true
   defp shift_pressed?(%{"shift_key" => true}), do: true
@@ -191,7 +198,7 @@ defmodule ZztExWeb.GameLive.Play do
         torch_ticks: game.player.torch_ticks
       )
     )
-    |> assign(:sidebar_rows, Sidebar.rows(game.player))
+    |> assign(:sidebar_rows, Sidebar.rows(game.player, paused?: game.paused?))
   end
 
   @impl true

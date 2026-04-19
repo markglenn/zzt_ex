@@ -497,6 +497,38 @@ defmodule ZztEx.Zzt.GameTest do
     end
   end
 
+  describe "pause" do
+    test "toggle_pause/1 flips the flag and advance no-ops while paused" do
+      game = blank_game(player_xy: {10, 10})
+
+      refute game.paused?
+
+      paused = Game.toggle_pause(game)
+      assert paused.paused?
+      # advance doesn't bump stat_tick while paused
+      still_paused = Game.advance(paused)
+      assert still_paused.stat_tick == paused.stat_tick
+
+      unpaused = Game.toggle_pause(paused)
+      refute unpaused.paused?
+    end
+
+    test "toggle_pause is a no-op when the player is dead" do
+      game = blank_game(player_xy: {10, 10}, player: %{health: 0})
+      assert Game.toggle_pause(game) == game
+    end
+
+    test "move_player clears the paused flag before moving" do
+      game = blank_game(player_xy: {10, 10}) |> Game.toggle_pause()
+      assert game.paused?
+
+      final = Game.move_player(game, 1, 0)
+      refute final.paused?
+      player = Enum.at(final.stats, 0)
+      assert {player.x, player.y} == {11, 10}
+    end
+  end
+
   describe "light_torch/1" do
     defp torch_game(opts) do
       torches = Keyword.get(opts, :torches, 1)
