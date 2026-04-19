@@ -85,7 +85,14 @@ defmodule ZztExWeb.GameLive.Play do
 
       step = arrow_step(key) ->
         {dx, dy} = step
-        game = Game.move_player(socket.assigns.game, dx, dy)
+
+        game =
+          if shift_pressed?(params) do
+            Game.player_shoot(socket.assigns.game, dx, dy)
+          else
+            Game.move_player(socket.assigns.game, dx, dy)
+          end
+
         {:noreply, refresh_rows(socket, game)}
 
       true ->
@@ -97,6 +104,10 @@ defmodule ZztExWeb.GameLive.Play do
     game = Game.dismiss_scroll(socket.assigns.game)
     {:noreply, refresh_rows(socket, game)}
   end
+
+  defp shift_pressed?(%{"shiftKey" => true}), do: true
+  defp shift_pressed?(%{"shift_key" => true}), do: true
+  defp shift_pressed?(_), do: false
 
   defp handle_scroll_key(key, socket) do
     case key do

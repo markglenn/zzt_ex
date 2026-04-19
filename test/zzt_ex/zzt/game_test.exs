@@ -410,6 +410,92 @@ defmodule ZztEx.Zzt.GameTest do
     end
   end
 
+  describe "player_shoot/3" do
+    defp shooting_game(opts \\ []) do
+      {px, py} = Keyword.get(opts, :player_xy, {10, 10})
+      ammo = Keyword.get(opts, :ammo, 5)
+      max_shots = Keyword.get(opts, :max_shots, 5)
+
+      tiles =
+        for y <- 1..Board.height(), x <- 1..Board.width(), into: %{} do
+          {{x, y}, {0, 0x0F}}
+        end
+        |> Map.put({px, py}, {4, 0x1F})
+
+      %Game{
+        board: %Board{title: "", max_shots: max_shots},
+        tiles: tiles,
+        stats: [%Stat{x: px, y: py, cycle: 1}],
+        player: base_player_state(ammo: ammo),
+        stat_tick: 0
+      }
+    end
+
+    test "spawns a bullet east and decrements ammo" do
+      game = shooting_game(ammo: 5, max_shots: 5)
+
+      final = Game.player_shoot(game, 1, 0)
+
+      # Bullet appears immediately east of the player.
+      {elem, _} = Map.fetch!(final.tiles, {11, 10})
+      assert elem == 18
+      assert final.player.ammo == 4
+    end
+
+    test "max_shots = 0 shows 'Can't shoot in this place!' and keeps ammo" do
+      game = shooting_game(ammo: 5, max_shots: 0)
+
+      final = Game.player_shoot(game, 1, 0)
+
+      assert final.message == "Can't shoot in this place!"
+      assert final.player.ammo == 5
+      assert Map.fetch!(final.tiles, {11, 10}) |> elem(0) == 0
+    end
+
+    test "no ammo shows 'Out of ammo!' and no bullet" do
+      game = shooting_game(ammo: 0, max_shots: 5)
+
+      final = Game.player_shoot(game, 1, 0)
+
+      assert final.message == "Out of ammo!"
+      assert Map.fetch!(final.tiles, {11, 10}) |> elem(0) == 0
+    end
+
+    test "existing player bullets at max_shots blocks further shots" do
+      # A single player bullet on the board and max_shots = 1 means the
+      # next shot is silently suppressed (no message, no ammo spent).
+      game = shooting_game(ammo: 5, max_shots: 1)
+
+      bullet_stat = %Stat{x: 20, y: 10, cycle: 1, step_x: 1, step_y: 0, p1: 0, p2: 100}
+
+      game = %{
+        game
+        | tiles: Map.put(game.tiles, {20, 10}, {18, 0x0F}),
+          stats: game.stats ++ [bullet_stat]
+      }
+
+      final = Game.player_shoot(game, 1, 0)
+
+      assert final.player.ammo == 5
+      assert final.message == nil
+      # Tile east of player remains empty.
+      assert Map.fetch!(final.tiles, {11, 10}) |> elem(0) == 0
+    end
+
+    test "dead player cannot shoot" do
+      game = shooting_game() |> Map.update!(:player, &%{&1 | health: 0})
+
+      final = Game.player_shoot(game, 1, 0)
+
+      assert final == game
+    end
+
+    test "(0, 0) direction is a no-op" do
+      game = shooting_game()
+      assert Game.player_shoot(game, 0, 0) == game
+    end
+  end
+
   describe "display_message/3" do
     test "sets message + converted tick count and clears after advance counts down" do
       # Reference calls DisplayMessage in BIOS-tick durations; 27 → 27 div 9 = 3 game ticks.

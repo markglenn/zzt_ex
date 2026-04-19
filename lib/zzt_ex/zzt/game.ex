@@ -498,6 +498,52 @@ defmodule ZztEx.Zzt.Game do
   end
 
   @doc """
+  Player shoots in `(dx, dy)`. Ports the shooting branch of
+  `ElementPlayerTick`: blocked by the board's `max_shots` (0 →
+  "Can't shoot in this place!"), empty ammo ("Out of ammo!"), or
+  hitting the player's own bullet cap. On success decrement ammo.
+  """
+  @spec player_shoot(t(), integer(), integer()) :: t()
+  def player_shoot(%__MODULE__{} = game, 0, 0), do: game
+
+  def player_shoot(%__MODULE__{} = game, dx, dy) do
+    max_shots = (game.board && game.board.max_shots) || 0
+
+    cond do
+      game.player.health <= 0 ->
+        game
+
+      max_shots == 0 ->
+        display_message(game, 200, "Can't shoot in this place!")
+
+      game.player.ammo == 0 ->
+        display_message(game, 200, "Out of ammo!")
+
+      count_player_bullets(game) >= max_shots ->
+        game
+
+      true ->
+        player = Enum.at(game.stats, 0)
+        {after_shot, fired?} = board_shoot(game, player.x, player.y, dx, dy, 0)
+
+        if fired? do
+          %{after_shot | player: %{after_shot.player | ammo: after_shot.player.ammo - 1}}
+        else
+          after_shot
+        end
+    end
+  end
+
+  defp count_player_bullets(%__MODULE__{} = game) do
+    Enum.count(game.stats, fn s ->
+      case Map.get(game.tiles, {s.x, s.y}) do
+        {18, _} -> s.p1 == 0
+        _ -> false
+      end
+    end)
+  end
+
+  @doc """
   Fire a bullet (or star) from `{x, y}` in direction `{dx, dy}`. Ports
   `BoardShoot`: if the tile immediately in that direction is walkable or
   water, a new bullet stat is spawned there. If it's a breakable (or a
