@@ -146,6 +146,52 @@ defmodule ZztEx.Zzt.RenderTest do
     }
   end
 
+  describe "dark rooms" do
+    defp dark_scene(opts) do
+      torch_ticks = Keyword.get(opts, :torch_ticks, 0)
+      player_xy = Keyword.get(opts, :player_xy, {30, 13})
+
+      tiles =
+        empty_tiles()
+        |> put_tile(elem(player_xy, 0), elem(player_xy, 1), {4, 0x1F})
+        |> put_tile(1, 1, {22, 0x0E})
+        |> put_tile(11, 11, {7, 0x0B})
+
+      {:ok, world} =
+        World.parse(ZztFixture.world(tiles: tiles, player_xy: player_xy))
+
+      [board] = world.boards
+      Render.rows(board, dark?: true, torch_ticks: torch_ticks)
+    end
+
+    test "unlit tiles render as ░ grey-on-black" do
+      rows = dark_scene(torch_ticks: 0)
+
+      # Far corner, no torch — darkened.
+      assert cell_at(rows, 60, 25) == {"░", 7, 0, false}
+      # Wall at (1, 1) is not VisibleInDark → also dark.
+      assert cell_at(rows, 1, 1) == {"░", 7, 0, false}
+    end
+
+    test "VisibleInDark elements punch through the darkness" do
+      rows = dark_scene(torch_ticks: 0, player_xy: {30, 13})
+
+      # Player is always visible.
+      assert cell_at(rows, 30, 13) |> elem(0) == "☻"
+    end
+
+    test "active torch lights the surrounding ellipse" do
+      rows = dark_scene(torch_ticks: 50, player_xy: {30, 13})
+
+      # Gem at (11, 11) is well outside the ellipse — still dark.
+      assert cell_at(rows, 11, 11) == {"░", 7, 0, false}
+      # Gem placed adjacent to the player would be visible, but the
+      # scene put it at (11, 11). Check one step east of the player:
+      # that cell was empty so it renders blank (not ░).
+      assert cell_at(rows, 31, 13) == {" ", 7, 0, false}
+    end
+  end
+
   describe "message overlay" do
     test "centers the message with surrounding spaces on the bottom row" do
       {:ok, world} = World.parse(ZztFixture.world(tiles: empty_tiles()))

@@ -11,6 +11,7 @@ defmodule ZztEx.Zzt.GameTest do
         gems: 0,
         keys: List.duplicate(false, 7),
         torches: 0,
+        torch_ticks: 0,
         score: 0,
         energizer_ticks: 0
       },
@@ -493,6 +494,68 @@ defmodule ZztEx.Zzt.GameTest do
     test "(0, 0) direction is a no-op" do
       game = shooting_game()
       assert Game.player_shoot(game, 0, 0) == game
+    end
+  end
+
+  describe "light_torch/1" do
+    defp torch_game(opts) do
+      torches = Keyword.get(opts, :torches, 1)
+      dark? = Keyword.get(opts, :dark?, true)
+      torch_ticks = Keyword.get(opts, :torch_ticks, 0)
+
+      tiles =
+        for y <- 1..Board.height(), x <- 1..Board.width(), into: %{} do
+          {{x, y}, {0, 0x0F}}
+        end
+        |> Map.put({10, 10}, {4, 0x1F})
+
+      %Game{
+        board: %Board{title: "", dark?: dark?},
+        tiles: tiles,
+        stats: [%Stat{x: 10, y: 10, cycle: 1}],
+        player: base_player_state(torches: torches, torch_ticks: torch_ticks),
+        stat_tick: 0
+      }
+    end
+
+    test "consumes a torch and starts the 200-tick timer in dark rooms" do
+      final = Game.light_torch(torch_game(torches: 2, dark?: true))
+
+      assert final.player.torches == 1
+      assert final.player.torch_ticks == 200
+    end
+
+    test "already-lit torch is a no-op" do
+      game = torch_game(torches: 3, torch_ticks: 50)
+      final = Game.light_torch(game)
+
+      assert final == game
+    end
+
+    test "no torches surfaces 'You don't have any torches!'" do
+      final = Game.light_torch(torch_game(torches: 0, dark?: true))
+
+      assert final.message == "You don't have any torches!"
+      assert final.player.torches == 0
+      assert final.player.torch_ticks == 0
+    end
+
+    test "not a dark room surfaces 'Don't need torch'" do
+      final = Game.light_torch(torch_game(torches: 2, dark?: false))
+
+      assert final.message == "Don't need torch - room is not dark!"
+      assert final.player.torches == 2
+      assert final.player.torch_ticks == 0
+    end
+
+    test "advance/1 counts torch_ticks down and stops at zero" do
+      game = torch_game(torches: 1, dark?: true, torch_ticks: 2)
+
+      game = Game.advance(game)
+      assert game.player.torch_ticks == 1
+
+      game = Game.advance(game) |> Game.advance()
+      assert game.player.torch_ticks == 0
     end
   end
 

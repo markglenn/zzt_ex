@@ -21,7 +21,10 @@ defmodule ZztEx.Zzt.Render do
 
   @empty 0
   @board_edge 1
+  @player 4
+  @torch_item 6
   @scroll 10
+  @passage 11
   @bomb 13
   @star 15
   @conveyor_cw 16
@@ -32,6 +35,13 @@ defmodule ZztEx.Zzt.Render do
   @object 36
   @spinning_gun 39
   @pusher 40
+
+  # Ellipse the torch illuminates — a rectangle `(2*TORCH_DX+1) x (2*TORCH_DY+1)`
+  # clipped to `(ix - x)^2 + (iy - y)^2 * 2 < TORCH_DIST_SQR`, matching
+  # `BoardDrawTile` / `DrawPlayerSurroundings`.
+  @torch_dist_sqr 50
+  # Dark tile glyph: CP437 0xB0 (light shade) with fg grey, bg black.
+  @dark_char 0xB0
 
   # ZZT animation frame tables, lifted from Elements.pas in the 2020 source
   # release. All indices are 0-based.
@@ -59,28 +69,56 @@ defmodule ZztEx.Zzt.Render do
     * `:message`        — `{text, ticks}` overlay centered on the bottom
       row (`y = 25`), mirroring `ElementMessageTimerTick`. `ticks`
       cycles the foreground color through palette 9..15.
+    * `:dark?`          — board is dark. Tiles outside the torch ellipse
+      render as CP437 0xB0 ("░"), except for `VisibleInDark` elements
+      (player, torch pickup, passage) which always show.
+    * `:torch_ticks`    — remaining torch time; when > 0 the ellipse
+      around the player stat is rendered normally.
   """
   @spec rows(Board.t(), keyword()) :: [[cell()]]
   def rows(%Board{} = board, opts \\ []) do
     tick = Keyword.get(opts, :tick, 0)
     title_screen? = Keyword.get(opts, :title_screen?, false)
     stats_by_xy = stats_by_position(board.stats)
-    player_pos = title_screen? && player_position(board.stats)
+    player_xy = player_position(board.stats)
+    dark? = Keyword.get(opts, :dark?, false)
+    torch_ticks = Keyword.get(opts, :torch_ticks, 0)
     grid = List.to_tuple(board.tiles)
 
     rows =
       for y <- 1..Board.height() do
         for x <- 1..Board.width() do
-          if player_pos == {x, y} do
+          if title_screen? and player_xy == {x, y} do
             {" ", 7, 0, false}
           else
             {element, color} = tile_at(grid, x, y)
-            compute_cell(grid, x, y, element, color, Map.get(stats_by_xy, {x, y}), tick)
+
+            if dark? and darken?(element, x, y, player_xy, torch_ticks) do
+              {Cp437.char(@dark_char), 7, 0, false}
+            else
+              compute_cell(grid, x, y, element, color, Map.get(stats_by_xy, {x, y}), tick)
+            end
           end
         end
       end
 
     overlay_message(rows, Keyword.get(opts, :message))
+  end
+
+  # VisibleInDark elements (player/torch pickup/passage) are never darkened;
+  # otherwise we darken unless the torch is lit and the cell sits inside
+  # the ellipse `(ix - px)^2 + (iy - py)^2 * 2 < TORCH_DIST_SQR`.
+  defp darken?(element, _x, _y, _player_xy, _torch_ticks)
+       when element in [@player, @torch_item, @passage],
+       do: false
+
+  defp darken?(_element, _x, _y, nil, _torch_ticks), do: true
+  defp darken?(_element, _x, _y, _player_xy, torch_ticks) when torch_ticks <= 0, do: true
+
+  defp darken?(_element, x, y, {px, py}, _torch_ticks) do
+    dx = x - px
+    dy = y - py
+    dx * dx + dy * dy * 2 >= @torch_dist_sqr
   end
 
   defp overlay_message(rows, nil), do: rows

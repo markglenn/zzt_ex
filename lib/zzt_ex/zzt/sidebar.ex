@@ -52,6 +52,10 @@ defmodule ZztEx.Zzt.Sidebar do
   @desc_col 7
   @arrow_col 8
   @word_col 14
+  @torch_bar_col 17
+  @torch_bar_len 4
+
+  @torch_duration 200
 
   @doc "Sidebar width in cells (always 20)."
   def width, do: @width
@@ -77,7 +81,7 @@ defmodule ZztEx.Zzt.Sidebar do
       blank_row(),
       stat_row(@icon_smiley, @white, "Health:", state.health),
       stat_row(@icon_ammo, @cyan, "Ammo:", state.ammo),
-      stat_row(@icon_torch, @brown, "Torches:", state.torches),
+      torches_row(state),
       stat_row(@icon_gem, @cyan, "Gems:", state.gems),
       score_row(state.score),
       keys_row(state.keys),
@@ -127,6 +131,30 @@ defmodule ZztEx.Zzt.Sidebar do
 
   defp title_row do
     paint(blank_row(), 3, "      ZZT      ", @black, @grey)
+  end
+
+  # Mirrors the reference's torch gauge at SidebarUpdate: four cells
+  # at the sidebar's right edge, each either #177 (▒ filled) or #176
+  # (░ empty), one segment lighting up per 40 ticks of torch time.
+  # Hidden entirely when no torch is burning.
+  defp torches_row(state) do
+    row = stat_row(@icon_torch, @brown, "Torches:", state.torches)
+
+    case Map.get(state, :torch_ticks, 0) do
+      n when n <= 0 -> row
+      ticks -> overlay(row, @torch_bar_col - 1, torch_bar_cells(ticks))
+    end
+  end
+
+  defp torch_bar_cells(ticks) do
+    # Reference iterates i = 2..5 and fills when `i <= ticks*5 / 200`.
+    # Our loop uses 1..4 so the check is shifted by one.
+    filled = div(ticks * 5, @torch_duration)
+
+    for i <- 1..@torch_bar_len do
+      char = if i + 1 <= filled, do: 0xB1, else: 0xB0
+      cell(char, @brown, @blue)
+    end
   end
 
   defp stat_row(icon_byte, icon_fg, label, value) do

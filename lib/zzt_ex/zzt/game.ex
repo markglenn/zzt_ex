@@ -39,6 +39,7 @@ defmodule ZztEx.Zzt.Game do
           gems: integer(),
           keys: [boolean()],
           torches: integer(),
+          torch_ticks: non_neg_integer(),
           score: integer(),
           energizer_ticks: non_neg_integer()
         }
@@ -79,6 +80,7 @@ defmodule ZztEx.Zzt.Game do
         gems: world.gems,
         keys: world.keys,
         torches: world.torches,
+        torch_ticks: world.torch_cycles,
         score: world.score,
         energizer_ticks: world.energizer_cycles
       },
@@ -122,8 +124,41 @@ defmodule ZztEx.Zzt.Game do
   def advance(%__MODULE__{} = game) do
     %{game | stat_tick: game.stat_tick + 1}
     |> decrement_energizer()
+    |> decrement_torch()
     |> decrement_message()
     |> tick_stats()
+  end
+
+  @torch_duration 200
+
+  @doc """
+  Light a torch. Ports the `'T'` branch of `ElementPlayerTick` — if a
+  torch is already lit nothing happens; otherwise we check inventory
+  and the board's `IsDark` flag and either light (decrement torches,
+  set `torch_ticks = 200`) or surface the matching ZZT message.
+  """
+  @spec light_torch(t()) :: t()
+  def light_torch(%__MODULE__{} = game) do
+    cond do
+      game.player.torch_ticks > 0 ->
+        game
+
+      game.player.torches <= 0 ->
+        display_message(game, 200, "You don't have any torches!")
+
+      game.board && not game.board.dark? ->
+        display_message(game, 200, "Don't need torch - room is not dark!")
+
+      true ->
+        %{
+          game
+          | player: %{
+              game.player
+              | torches: game.player.torches - 1,
+                torch_ticks: @torch_duration
+            }
+        }
+    end
   end
 
   # Approximates the reference's `TickTimeDuration + 1` at speed 4 —
@@ -660,6 +695,12 @@ defmodule ZztEx.Zzt.Game do
   end
 
   defp decrement_energizer(game), do: game
+
+  defp decrement_torch(%{player: %{torch_ticks: n} = p} = game) when n > 0 do
+    %{game | player: %{p | torch_ticks: n - 1}}
+  end
+
+  defp decrement_torch(game), do: game
 
   defp decrement_message(%{message_ticks: 0} = game), do: game
 

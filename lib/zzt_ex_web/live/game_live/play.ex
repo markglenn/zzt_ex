@@ -94,6 +94,9 @@ defmodule ZztExWeb.GameLive.Play do
 
         {:noreply, refresh_rows(socket, game)}
 
+      torch_key?(key) ->
+        {:noreply, refresh_rows(socket, Game.light_torch(socket.assigns.game))}
+
       true ->
         {:noreply, socket}
     end
@@ -103,6 +106,10 @@ defmodule ZztExWeb.GameLive.Play do
     game = Game.dismiss_scroll(socket.assigns.game)
     {:noreply, refresh_rows(socket, game)}
   end
+
+  defp torch_key?("t"), do: true
+  defp torch_key?("T"), do: true
+  defp torch_key?(_), do: false
 
   defp shift_pressed?(%{"shiftKey" => true}), do: true
   defp shift_pressed?(%{"shift_key" => true}), do: true
@@ -179,7 +186,9 @@ defmodule ZztExWeb.GameLive.Play do
       Render.rows(board,
         tick: game.stat_tick,
         title_screen?: game.board_index == 0,
-        message: game.message && {game.message, game.message_ticks}
+        message: game.message && {game.message, game.message_ticks},
+        dark?: game.board && game.board.dark?,
+        torch_ticks: game.player.torch_ticks
       )
     )
     |> assign(:sidebar_rows, Sidebar.rows(game.player))
